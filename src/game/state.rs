@@ -38,6 +38,10 @@ pub struct Game {
     pub clear_animation_timer: f64,
     /// Soft drop input timer
     pub soft_drop_timer: f64,
+    /// Left movement input timer
+    pub left_move_timer: f64,
+    /// Right movement input timer
+    pub right_move_timer: f64,
 }
 
 impl Game {
@@ -55,6 +59,8 @@ impl Game {
             clearing_lines: Vec::new(),
             clear_animation_timer: 0.0,
             soft_drop_timer: 0.0,
+            left_move_timer: 0.0,
+            right_move_timer: 0.0,
         };
         
         // Spawn the first piece
@@ -82,6 +88,8 @@ impl Game {
         
         self.drop_timer += delta_time;
         self.soft_drop_timer += delta_time;
+        self.left_move_timer += delta_time;
+        self.right_move_timer += delta_time;
         
         // Check if it's time to drop the current piece
         if self.drop_timer >= self.drop_interval {
@@ -296,6 +304,30 @@ impl Game {
         }
     }
     
+    /// Handle continuous left movement
+    pub fn update_left_movement(&mut self, is_held: bool) {
+        if is_held && self.left_move_timer >= HORIZONTAL_MOVE_INTERVAL {
+            self.move_piece(-1, 0);
+            self.left_move_timer = 0.0;
+        }
+        
+        if !is_held {
+            self.left_move_timer = HORIZONTAL_MOVE_INTERVAL; // Allow immediate move when pressed
+        }
+    }
+    
+    /// Handle continuous right movement
+    pub fn update_right_movement(&mut self, is_held: bool) {
+        if is_held && self.right_move_timer >= HORIZONTAL_MOVE_INTERVAL {
+            self.move_piece(1, 0);
+            self.right_move_timer = 0.0;
+        }
+        
+        if !is_held {
+            self.right_move_timer = HORIZONTAL_MOVE_INTERVAL; // Allow immediate move when pressed
+        }
+    }
+    
     /// Check if lines are currently being cleared (for rendering)
     pub fn is_clearing_lines(&self) -> bool {
         !self.clearing_lines.is_empty()
@@ -313,6 +345,29 @@ impl Game {
         } else {
             (self.clear_animation_timer / LINE_CLEAR_ANIMATION_TIME).min(1.0)
         }
+    }
+    
+    /// Calculate where the current piece will land (ghost piece position)
+    pub fn calculate_ghost_piece(&self) -> Option<Tetromino> {
+        if let Some(mut ghost_piece) = self.current_piece.clone() {
+            // Drop the ghost piece as far as it can go
+            loop {
+                ghost_piece.move_by(0, 1);
+                if !self.is_piece_valid(&ghost_piece) {
+                    // Move back one step to the last valid position
+                    ghost_piece.move_by(0, -1);
+                    break;
+                }
+            }
+            
+            // Only return ghost piece if it's different from current position
+            if let Some(ref current) = self.current_piece {
+                if ghost_piece.position.1 != current.position.1 {
+                    return Some(ghost_piece);
+                }
+            }
+        }
+        None
     }
 }
 

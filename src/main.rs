@@ -90,6 +90,11 @@ async fn main() {
         
         // Draw the current falling piece (only if not clearing lines)
         if !game.is_clearing_lines() {
+            // Draw ghost piece first (behind the actual piece)
+            if let Some(ghost_piece) = game.calculate_ghost_piece() {
+                draw_ghost_piece(&ghost_piece);
+            }
+            
             if let Some(ref piece) = game.current_piece {
                 draw_falling_piece(piece);
             }
@@ -169,13 +174,12 @@ fn handle_input(game: &mut Game) {
         return;
     }
     
-    // Movement (Arrow keys + WASD)
-    if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
-        game.move_piece(-1, 0);
-    }
-    if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
-        game.move_piece(1, 0);
-    }
+    // Continuous horizontal movement (Arrow keys + WASD)
+    let left_held = is_key_down(KeyCode::Left) || is_key_down(KeyCode::A);
+    let right_held = is_key_down(KeyCode::Right) || is_key_down(KeyCode::D);
+    
+    game.update_left_movement(left_held);
+    game.update_right_movement(right_held);
     
     // Continuous soft drop (Down arrow + S key)
     let soft_drop_held = is_key_down(KeyCode::Down) || is_key_down(KeyCode::S);
@@ -239,6 +243,46 @@ fn draw_falling_piece(piece: &Tetromino) {
                 CELL_SIZE - 4.0,
                 4.0,
                 Color::new(0.0, 0.0, 0.0, 0.2),
+            );
+        }
+    }
+}
+
+/// Draw the ghost piece (shadow piece showing where current piece will land)
+fn draw_ghost_piece(ghost_piece: &Tetromino) {
+    for (x, y) in ghost_piece.absolute_blocks() {
+        // Only draw blocks that are in the visible area
+        if y >= BUFFER_HEIGHT as i32 {
+            let visible_y = y - BUFFER_HEIGHT as i32;
+            let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
+            let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
+            
+            // Get base color and make it translucent
+            let base_color = ghost_piece.color();
+            let ghost_color = Color::new(
+                base_color.r,
+                base_color.g,
+                base_color.b,
+                0.3, // Make it quite transparent
+            );
+            
+            // Draw ghost cell with just a border outline
+            draw_rectangle_lines(
+                cell_x + 2.0,
+                cell_y + 2.0,
+                CELL_SIZE - 4.0,
+                CELL_SIZE - 4.0,
+                2.0,
+                ghost_color,
+            );
+            
+            // Add subtle fill for better visibility
+            draw_rectangle(
+                cell_x + 4.0,
+                cell_y + 4.0,
+                CELL_SIZE - 8.0,
+                CELL_SIZE - 8.0,
+                Color::new(base_color.r, base_color.g, base_color.b, 0.1),
             );
         }
     }
@@ -507,11 +551,12 @@ fn draw_enhanced_ui(game: &Game) {
     // Instructions with background
     let instructions = vec![
         "Controls:",
-        "← → / A D - Move",
+        "← → / A D - Move (hold)",
         "↓ S - Soft Drop (hold)",
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
+        "Ghost shows landing spot",
         "P - Pause, R - Reset",
     ];
     
