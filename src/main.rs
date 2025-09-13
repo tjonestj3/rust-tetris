@@ -288,47 +288,144 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
     }
 }
 
-/// Draw line clearing animation
+/// Draw enhanced line clearing animation with multiple effects
 fn draw_line_clear_animation(game: &Game) {
     let progress = game.get_clear_animation_progress();
     let clearing_lines = game.get_clearing_lines();
     
-    for &line_y in clearing_lines {
+    for (line_idx, &line_y) in clearing_lines.iter().enumerate() {
         // Only animate lines in visible area
         if line_y >= BUFFER_HEIGHT {
             let visible_y = line_y - BUFFER_HEIGHT;
             let anim_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
             
-            // Create flashing white effect
-            let flash_alpha = ((progress * 10.0).sin() * 0.5 + 0.5) as f32;
-            let flash_color = Color::new(1.0, 1.0, 1.0, flash_alpha * 0.8);
-            
-            // Draw flashing overlay across the entire line
-            draw_rectangle(
-                BOARD_OFFSET_X,
-                anim_y,
-                BOARD_WIDTH_PX,
-                CELL_SIZE,
-                flash_color,
-            );
-            
-            // Add some sparkle effects
-            for i in 0..BOARD_WIDTH {
-                let sparkle_x = BOARD_OFFSET_X + (i as f32 * CELL_SIZE) + CELL_SIZE / 2.0;
-                let sparkle_y = anim_y + CELL_SIZE / 2.0;
+            // Phase 1: Initial flash with expanding energy wave (0.0 - 0.3)
+            if progress <= 0.3 {
+                let phase_progress = (progress / 0.3) as f32;
                 
-                let sparkle_phase = progress * 6.28 + (i as f64 * 0.5);
-                let sparkle_alpha = (sparkle_phase.sin() * 0.5 + 0.5) as f32;
+                // Bright energy flash
+                let flash_intensity = (1.0 - phase_progress) * 0.9;
+                let energy_color = Color::new(1.0, 0.9, 0.3, flash_intensity);
                 
-                if sparkle_alpha > 0.7 {
-                    draw_rectangle(
-                        sparkle_x - 2.0,
-                        sparkle_y - 2.0,
-                        4.0,
-                        4.0,
-                        Color::new(1.0, 1.0, 0.8, sparkle_alpha),
-                    );
+                draw_rectangle(
+                    BOARD_OFFSET_X,
+                    anim_y,
+                    BOARD_WIDTH_PX,
+                    CELL_SIZE,
+                    energy_color,
+                );
+                
+                // Expanding wave effect from center
+                let wave_width = phase_progress * BOARD_WIDTH_PX;
+                let wave_center = BOARD_OFFSET_X + BOARD_WIDTH_PX / 2.0;
+                let wave_color = Color::new(0.3, 0.8, 1.0, (1.0 - phase_progress) * 0.6);
+                
+                draw_rectangle(
+                    wave_center - wave_width / 2.0,
+                    anim_y - 2.0,
+                    wave_width,
+                    CELL_SIZE + 4.0,
+                    wave_color,
+                );
+            }
+            
+            // Phase 2: Particle disintegration effect (0.3 - 0.8)
+            else if progress <= 0.8 {
+                let phase_progress = ((progress - 0.3) / 0.5) as f32;
+                
+                // Simulate blocks breaking apart into particles
+                for i in 0..BOARD_WIDTH {
+                    let base_x = BOARD_OFFSET_X + (i as f32 * CELL_SIZE);
+                    
+                    // Multiple particles per cell
+                    for particle_idx in 0..4 {
+                        let particle_offset_x = (particle_idx % 2) as f32 * CELL_SIZE / 2.0;
+                        let particle_offset_y = (particle_idx / 2) as f32 * CELL_SIZE / 2.0;
+                        
+                        let particle_x = base_x + particle_offset_x + CELL_SIZE / 4.0;
+                        let particle_y = anim_y + particle_offset_y + CELL_SIZE / 4.0;
+                        
+                        // Add some randomness based on position
+                        let seed = (line_idx + i + particle_idx) as f32 * 0.1;
+                        let drift_x = seed.sin() * phase_progress * 20.0;
+                        let drift_y = (seed.cos() * phase_progress * 15.0) + (phase_progress * phase_progress * 30.0);
+                        
+                        let final_x = particle_x + drift_x;
+                        let final_y = particle_y + drift_y;
+                        
+                        // Particle size shrinks over time
+                        let particle_size = CELL_SIZE / 4.0 * (1.0 - phase_progress * 0.7);
+                        
+                        // Color fades from original to orange/red
+                        let fade_alpha = 1.0 - phase_progress;
+                        let heat_intensity = phase_progress;
+                        let particle_color = Color::new(
+                            1.0,
+                            1.0 - heat_intensity * 0.5,
+                            0.3 * (1.0 - heat_intensity),
+                            fade_alpha * 0.8,
+                        );
+                        
+                        draw_rectangle(
+                            final_x - particle_size / 2.0,
+                            final_y - particle_size / 2.0,
+                            particle_size,
+                            particle_size,
+                            particle_color,
+                        );
+                        
+                        // Add glow effect
+                        if particle_size > 2.0 {
+                            draw_rectangle(
+                                final_x - particle_size / 4.0,
+                                final_y - particle_size / 4.0,
+                                particle_size / 2.0,
+                                particle_size / 2.0,
+                                Color::new(1.0, 1.0, 0.8, fade_alpha * 0.4),
+                            );
+                        }
+                    }
                 }
+            }
+            
+            // Phase 3: Final sparkle fade out (0.8 - 1.0)
+            else {
+                let phase_progress = ((progress - 0.8) / 0.2) as f32;
+                
+                // Residual sparkles
+                for i in 0..BOARD_WIDTH * 2 {
+                    let sparkle_x = BOARD_OFFSET_X + (i as f32 * CELL_SIZE / 2.0);
+                    let sparkle_y = anim_y + CELL_SIZE / 2.0;
+                    
+                    let sparkle_seed = (line_idx + i) as f64 * 0.7 + progress * 8.0;
+                    let sparkle_alpha = (sparkle_seed.sin() * 0.5 + 0.5) as f32 * (1.0 - phase_progress);
+                    
+                    if sparkle_alpha > 0.3 {
+                        let sparkle_size = 2.0 + sparkle_alpha * 3.0;
+                        draw_rectangle(
+                            sparkle_x - sparkle_size / 2.0,
+                            sparkle_y - sparkle_size / 2.0,
+                            sparkle_size,
+                            sparkle_size,
+                            Color::new(1.0, 1.0, 0.9, sparkle_alpha * 0.6),
+                        );
+                    }
+                }
+            }
+            
+            // Add screen-shake effect visualization (subtle border pulse)
+            if progress <= 0.4 {
+                let shake_intensity = ((1.0 - progress / 0.4) * 2.0) as f32;
+                let border_color = Color::new(1.0, 0.8, 0.2, shake_intensity * 0.3);
+                
+                draw_rectangle_lines(
+                    BOARD_OFFSET_X - shake_intensity,
+                    anim_y - shake_intensity,
+                    BOARD_WIDTH_PX + shake_intensity * 2.0,
+                    CELL_SIZE + shake_intensity * 2.0,
+                    shake_intensity.max(1.0),
+                    border_color,
+                );
             }
         }
     }
