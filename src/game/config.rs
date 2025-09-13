@@ -7,10 +7,9 @@ pub const VISIBLE_HEIGHT: usize = 20;
 pub const BUFFER_HEIGHT: usize = 4; // Extra rows above visible area for piece spawning
 
 /// Rendering constants
-pub const CELL_SIZE: f32 = 30.0;
-pub const BOARD_OFFSET_X: f32 = 50.0;
-pub const BOARD_OFFSET_Y: f32 = 100.0; // Increased to leave room for title
-pub const GRID_LINE_WIDTH: f32 = 1.0;
+pub const CELL_SIZE: f32 = 32.0;  // Slightly larger cells
+pub const GRID_LINE_WIDTH: f32 = 1.5;
+pub const BOARD_BORDER_WIDTH: f32 = 3.0;
 
 /// Window dimensions (calculated to fit everything properly)
 pub const WINDOW_WIDTH: i32 = 900;  // Extra width for UI elements
@@ -46,6 +45,10 @@ pub const TITLE_TEXT_SIZE: f32 = 32.0;
 /// Game area calculations (computed from above constants)
 pub const BOARD_WIDTH_PX: f32 = BOARD_WIDTH as f32 * CELL_SIZE;
 pub const BOARD_HEIGHT_PX: f32 = VISIBLE_HEIGHT as f32 * CELL_SIZE;
+
+/// Centered board positioning
+pub const BOARD_OFFSET_X: f32 = (WINDOW_WIDTH as f32 - BOARD_WIDTH_PX) / 2.0;
+pub const BOARD_OFFSET_Y: f32 = (WINDOW_HEIGHT as f32 - BOARD_HEIGHT_PX) / 2.0 + 20.0; // Slightly above center
 
 /// Next piece preview area
 pub const PREVIEW_OFFSET_X: f32 = BOARD_OFFSET_X + BOARD_WIDTH_PX + UI_MARGIN;

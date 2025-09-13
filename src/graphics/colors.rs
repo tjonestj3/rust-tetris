@@ -3,12 +3,13 @@
 use macroquad::prelude::Color;
 
 /// Background colors
-pub const BACKGROUND_COLOR: Color = Color::new(0.1, 0.1, 0.1, 1.0);
-pub const BOARD_BACKGROUND: Color = Color::new(0.05, 0.05, 0.05, 1.0);
+pub const BACKGROUND_COLOR: Color = Color::new(0.05, 0.05, 0.1, 1.0); // Dark blue tint
+pub const BOARD_BACKGROUND: Color = Color::new(0.15, 0.15, 0.2, 0.9); // Slightly transparent dark blue
+pub const BOARD_SHADOW: Color = Color::new(0.0, 0.0, 0.0, 0.8); // Shadow behind board
 
-/// Grid colors
-pub const GRID_LINE_COLOR: Color = Color::new(0.3, 0.3, 0.3, 1.0);
-pub const BOARD_BORDER_COLOR: Color = Color::new(0.6, 0.6, 0.6, 1.0);
+/// Grid colors  
+pub const GRID_LINE_COLOR: Color = Color::new(0.4, 0.45, 0.6, 0.8); // Blue-tinted grid
+pub const BOARD_BORDER_COLOR: Color = Color::new(0.8, 0.8, 0.9, 1.0); // Light border
 
 /// Text colors
 pub const TEXT_COLOR: Color = Color::new(1.0, 1.0, 1.0, 1.0);

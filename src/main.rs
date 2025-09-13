@@ -26,6 +26,9 @@ async fn main() {
     log::info!("Board position: ({}, {})", BOARD_OFFSET_X, BOARD_OFFSET_Y);
     log::info!("Required height: {} + {} = {}", BOARD_OFFSET_Y, BOARD_HEIGHT_PX, BOARD_OFFSET_Y + BOARD_HEIGHT_PX);
 
+    // Load background texture
+    let background_texture = Texture2D::from_image(&create_chess_background());
+    
     // Initialize game state (placeholder for now)
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
@@ -50,28 +53,31 @@ async fn main() {
             break;
         }
 
-        // Clear screen
+        // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
-
-        // Draw placeholder content
-        draw_text(
-            "Rust Tetris - Phase 1",
-            20.0,
-            40.0,
-            TITLE_TEXT_SIZE,
-            TEXT_COLOR,
+        
+        // Draw background image
+        draw_texture(
+            &background_texture,
+            0.0,
+            0.0,
+            WHITE,
+        );
+        
+        // Draw semi-transparent overlay for better text readability
+        draw_rectangle(
+            0.0,
+            0.0,
+            WINDOW_WIDTH as f32,
+            WINDOW_HEIGHT as f32,
+            Color::new(0.0, 0.0, 0.0, 0.4),
         );
 
-        draw_text(
-            "Press ESC to quit",
-            20.0,
-            70.0,
-            TEXT_SIZE,
-            TEXT_COLOR,
-        );
-
-        // Draw board placeholder (empty grid)
-        draw_board_placeholder();
+        // Draw enhanced Tetris board
+        draw_enhanced_board();
+        
+        // Draw title with enhanced styling
+        draw_enhanced_ui();
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -95,9 +101,52 @@ async fn main() {
     }
 }
 
-/// Draw a placeholder for the game board (empty grid)
-fn draw_board_placeholder() {
-    // Draw board background
+/// Create a procedural chess-like background
+fn create_chess_background() -> Image {
+    let width = WINDOW_WIDTH as u16;
+    let height = WINDOW_HEIGHT as u16;
+    let mut image = Image::gen_image_color(width, height, Color::new(0.1, 0.05, 0.0, 1.0));
+    
+    // Create a fiery chess pattern
+    for y in 0..height {
+        for x in 0..width {
+            let chess_x = (x / 64) % 2;
+            let chess_y = (y / 64) % 2;
+            
+            let base_color = if (chess_x + chess_y) % 2 == 0 {
+                Color::new(0.15, 0.08, 0.02, 1.0) // Dark brown
+            } else {
+                Color::new(0.25, 0.15, 0.05, 1.0) // Light brown
+            };
+            
+            // Add some fire-like gradient
+            let gradient = (y as f32 / height as f32) * 0.3;
+            let final_color = Color::new(
+                (base_color.r + gradient * 0.8).min(1.0),
+                (base_color.g + gradient * 0.4).min(1.0),
+                (base_color.b + gradient * 0.1).min(1.0),
+                1.0,
+            );
+            
+            image.set_pixel(x as u32, y as u32, final_color);
+        }
+    }
+    
+    image
+}
+
+/// Draw enhanced Tetris board with modern styling
+fn draw_enhanced_board() {
+    // Draw board shadow
+    draw_rectangle(
+        BOARD_OFFSET_X + 5.0,
+        BOARD_OFFSET_Y + 5.0,
+        BOARD_WIDTH_PX,
+        BOARD_HEIGHT_PX,
+        BOARD_SHADOW,
+    );
+    
+    // Draw board background with gradient effect
     draw_rectangle(
         BOARD_OFFSET_X,
         BOARD_OFFSET_Y,
@@ -106,16 +155,17 @@ fn draw_board_placeholder() {
         BOARD_BACKGROUND,
     );
     
-    // Draw board title
-    draw_text(
-        "Game Board (10x20)",
-        BOARD_OFFSET_X,
-        BOARD_OFFSET_Y - 10.0,
-        TEXT_SIZE,
-        TEXT_COLOR,
+    // Draw subtle inner glow
+    draw_rectangle_lines(
+        BOARD_OFFSET_X - 1.0,
+        BOARD_OFFSET_Y - 1.0,
+        BOARD_WIDTH_PX + 2.0,
+        BOARD_HEIGHT_PX + 2.0,
+        1.0,
+        Color::new(0.6, 0.7, 0.9, 0.3),
     );
-
-    // Draw grid lines
+    
+    // Draw grid lines with improved styling
     for x in 0..=BOARD_WIDTH {
         let line_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
         draw_line(
@@ -140,13 +190,131 @@ fn draw_board_placeholder() {
         );
     }
 
-    // Draw board border
+    // Draw enhanced border with multiple layers
     draw_rectangle_lines(
         BOARD_OFFSET_X,
         BOARD_OFFSET_Y,
         BOARD_WIDTH_PX,
         BOARD_HEIGHT_PX,
-        2.0,
+        BOARD_BORDER_WIDTH,
         BOARD_BORDER_COLOR,
     );
+    
+    // Add some sample colored blocks to show Tetris piece colors
+    draw_sample_tetromino_preview();
 }
+
+/// Draw sample tetromino blocks for visual preview
+fn draw_sample_tetromino_preview() {
+    let sample_positions = vec![
+        (2, 18, TETROMINO_I), // I piece preview
+        (5, 18, TETROMINO_O), // O piece preview  
+        (8, 18, TETROMINO_T), // T piece preview
+        (1, 19, TETROMINO_S), // S piece preview
+        (4, 19, TETROMINO_Z), // Z piece preview
+        (7, 19, TETROMINO_J), // J piece preview
+        (9, 19, TETROMINO_L), // L piece preview
+    ];
+    
+    for (x, y, color) in sample_positions {
+        let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
+        let cell_y = BOARD_OFFSET_Y + (y as f32 * CELL_SIZE);
+        
+        // Draw filled cell with border
+        draw_rectangle(
+            cell_x + 1.0,
+            cell_y + 1.0,
+            CELL_SIZE - 2.0,
+            CELL_SIZE - 2.0,
+            color,
+        );
+        
+        // Draw subtle highlight
+        draw_rectangle(
+            cell_x + 2.0,
+            cell_y + 2.0,
+            CELL_SIZE - 4.0,
+            8.0,
+            Color::new(1.0, 1.0, 1.0, 0.3),
+        );
+    }
+}
+
+/// Draw enhanced UI elements
+fn draw_enhanced_ui() {
+    // Draw title with shadow effect
+    let title = "RUST TETRIS";
+    let title_x = (WINDOW_WIDTH as f32 - measure_text(title, None, TITLE_TEXT_SIZE as u16, 1.0).width) / 2.0;
+    
+    // Title shadow
+    draw_text(
+        title,
+        title_x + 2.0,
+        42.0,
+        TITLE_TEXT_SIZE,
+        Color::new(0.0, 0.0, 0.0, 0.8),
+    );
+    
+    // Main title
+    draw_text(
+        title,
+        title_x,
+        40.0,
+        TITLE_TEXT_SIZE,
+        Color::new(1.0, 0.9, 0.7, 1.0),
+    );
+    
+    // Subtitle
+    let subtitle = "Phase 1 - Foundation";
+    let subtitle_x = (WINDOW_WIDTH as f32 - measure_text(subtitle, None, TEXT_SIZE as u16, 1.0).width) / 2.0;
+    
+    draw_text(
+        subtitle,
+        subtitle_x,
+        65.0,
+        TEXT_SIZE,
+        Color::new(0.8, 0.8, 0.9, 0.8),
+    );
+    
+    // Instructions with background
+    let instructions = vec![
+        "Controls:",
+        "ESC - Quit Game",
+        "Arrow Keys - Move (Coming Soon!)",
+        "Space - Drop (Coming Soon!)",
+    ];
+    
+    let inst_x = 20.0;
+    let mut inst_y = WINDOW_HEIGHT as f32 - 120.0;
+    
+    // Instructions background
+    draw_rectangle(
+        inst_x - 10.0,
+        inst_y - 25.0,
+        280.0,
+        100.0,
+        Color::new(0.0, 0.0, 0.0, 0.6),
+    );
+    
+    for (i, instruction) in instructions.iter().enumerate() {
+        let color = if i == 0 {
+            Color::new(1.0, 0.9, 0.7, 1.0) // Header color
+        } else {
+            Color::new(0.9, 0.9, 0.95, 0.9) // Normal text
+        };
+        
+        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.8, color);
+        inst_y += 22.0;
+    }
+    
+    // Board info
+    let board_info = format!("Board: {}x{} cells", BOARD_WIDTH, VISIBLE_HEIGHT);
+    draw_text(
+        &board_info,
+        BOARD_OFFSET_X,
+        BOARD_OFFSET_Y - 15.0,
+        TEXT_SIZE * 0.8,
+        Color::new(0.8, 0.9, 1.0, 0.7),
+    );
+}
+
