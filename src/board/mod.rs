@@ -3,4 +3,4 @@
 pub mod board;
 pub mod renderer;
 
-pub use board::Board;
+pub use board::{Board, Cell};

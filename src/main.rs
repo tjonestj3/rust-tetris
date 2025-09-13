@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use rust_tetris::game::config::*;
 use rust_tetris::graphics::colors::*;
+use rust_tetris::board::{Board, Cell};
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -29,10 +30,14 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
-    // Initialize game state (placeholder for now)
+    // Initialize game board and state
+    let mut board = Board::new();
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
     let mut fps = 0.0;
+    
+    // Add some test blocks to showcase the board functionality
+    add_demo_blocks(&mut board);
 
     // Main game loop
     loop {
@@ -73,11 +78,11 @@ async fn main() {
             Color::new(0.0, 0.0, 0.0, 0.4),
         );
 
-        // Draw enhanced Tetris board
-        draw_enhanced_board();
+        // Draw enhanced Tetris board with real data
+        draw_enhanced_board_with_data(&board);
         
         // Draw title with enhanced styling
-        draw_enhanced_ui();
+        draw_enhanced_ui(&board);
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -135,8 +140,39 @@ fn create_chess_background() -> Image {
     image
 }
 
-/// Draw enhanced Tetris board with modern styling
-fn draw_enhanced_board() {
+/// Add some demo blocks to showcase board functionality
+fn add_demo_blocks(board: &mut Board) {
+    // Add some sample pieces to demonstrate the board
+    let demo_patterns = vec![
+        // Bottom row - almost complete line
+        (0, 23, TETROMINO_I), (1, 23, TETROMINO_O), (2, 23, TETROMINO_T), 
+        (3, 23, TETROMINO_S), (4, 23, TETROMINO_Z), (5, 23, TETROMINO_J), 
+        (6, 23, TETROMINO_L), (7, 23, TETROMINO_I), // Missing 2 blocks for demo
+        
+        // Second row - partial fill
+        (1, 22, TETROMINO_T), (2, 22, TETROMINO_T), (3, 22, TETROMINO_T),
+        (6, 22, TETROMINO_S), (7, 22, TETROMINO_S), (8, 22, TETROMINO_S),
+        
+        // Third row - scattered blocks
+        (0, 21, TETROMINO_J), (4, 21, TETROMINO_O), (9, 21, TETROMINO_L),
+        
+        // Tower on the left
+        (0, 20, TETROMINO_I), (0, 19, TETROMINO_I), (0, 18, TETROMINO_I),
+        
+        // Tower on the right  
+        (9, 20, TETROMINO_Z), (9, 19, TETROMINO_Z),
+    ];
+    
+    for (x, y, color) in demo_patterns {
+        board.set_cell(x, y, Cell::Filled(color));
+    }
+    
+    log::info!("Added {} demo blocks to board", board.filled_cells_count());
+    log::info!("Board level: {}, Lines cleared: {}", board.level(), board.lines_cleared());
+}
+
+/// Draw enhanced Tetris board with modern styling and real data
+fn draw_enhanced_board_with_data(board: &Board) {
     // Draw board shadow
     draw_rectangle(
         BOARD_OFFSET_X + 5.0,
@@ -189,6 +225,49 @@ fn draw_enhanced_board() {
             GRID_LINE_COLOR,
         );
     }
+    
+    // Draw filled cells from the board data
+    for y in 0..VISIBLE_HEIGHT {
+        for x in 0..BOARD_WIDTH {
+            // Convert to board coordinates (includes buffer rows)
+            let board_y = (y + BUFFER_HEIGHT) as i32;
+            let board_x = x as i32;
+            
+            if let Some(cell) = board.get_cell(board_x, board_y) {
+                if let Some(color) = cell.color() {
+                    let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
+                    let cell_y = BOARD_OFFSET_Y + (y as f32 * CELL_SIZE);
+                    
+                    // Draw filled cell with border
+                    draw_rectangle(
+                        cell_x + 1.0,
+                        cell_y + 1.0,
+                        CELL_SIZE - 2.0,
+                        CELL_SIZE - 2.0,
+                        color,
+                    );
+                    
+                    // Draw subtle highlight for 3D effect
+                    draw_rectangle(
+                        cell_x + 2.0,
+                        cell_y + 2.0,
+                        CELL_SIZE - 4.0,
+                        6.0,
+                        Color::new(1.0, 1.0, 1.0, 0.3),
+                    );
+                    
+                    // Draw subtle shadow at bottom
+                    draw_rectangle(
+                        cell_x + 2.0,
+                        cell_y + CELL_SIZE - 6.0,
+                        CELL_SIZE - 4.0,
+                        4.0,
+                        Color::new(0.0, 0.0, 0.0, 0.2),
+                    );
+                }
+            }
+        }
+    }
 
     // Draw enhanced border with multiple layers
     draw_rectangle_lines(
@@ -199,9 +278,6 @@ fn draw_enhanced_board() {
         BOARD_BORDER_WIDTH,
         BOARD_BORDER_COLOR,
     );
-    
-    // Add some sample colored blocks to show Tetris piece colors
-    draw_sample_tetromino_preview();
 }
 
 /// Draw sample tetromino blocks for visual preview
@@ -241,7 +317,7 @@ fn draw_sample_tetromino_preview() {
 }
 
 /// Draw enhanced UI elements
-fn draw_enhanced_ui() {
+fn draw_enhanced_ui(board: &Board) {
     // Draw title with shadow effect
     let title = "RUST TETRIS";
     let title_x = (WINDOW_WIDTH as f32 - measure_text(title, None, TITLE_TEXT_SIZE as u16, 1.0).width) / 2.0;
@@ -307,10 +383,52 @@ fn draw_enhanced_ui() {
         inst_y += 22.0;
     }
     
-    // Board info
-    let board_info = format!("Board: {}x{} cells", BOARD_WIDTH, VISIBLE_HEIGHT);
+    // Board statistics panel
+    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 30.0;
+    let mut stats_y = BOARD_OFFSET_Y;
+    
+    // Stats background
+    draw_rectangle(
+        stats_x - 10.0,
+        stats_y - 10.0,
+        200.0,
+        120.0,
+        Color::new(0.0, 0.0, 0.0, 0.6),
+    );
+    
+    // Stats title
     draw_text(
-        &board_info,
+        "Board Statistics",
+        stats_x,
+        stats_y,
+        TEXT_SIZE * 0.9,
+        Color::new(1.0, 0.9, 0.7, 1.0),
+    );
+    stats_y += 25.0;
+    
+    // Individual stats
+    let stats = vec![
+        format!("Level: {}", board.level()),
+        format!("Lines: {}", board.lines_cleared()),
+        format!("Blocks: {}", board.filled_cells_count()),
+        format!("Size: {}×{}", BOARD_WIDTH, VISIBLE_HEIGHT),
+    ];
+    
+    for stat in stats {
+        draw_text(
+            &stat,
+            stats_x,
+            stats_y,
+            TEXT_SIZE * 0.75,
+            Color::new(0.9, 0.9, 0.95, 0.9),
+        );
+        stats_y += 20.0;
+    }
+    
+    // Board info label
+    let board_info = "Demo Board Data";
+    draw_text(
+        board_info,
         BOARD_OFFSET_X,
         BOARD_OFFSET_Y - 15.0,
         TEXT_SIZE * 0.8,
