@@ -1,0 +1,65 @@
+//! Game configuration constants and settings
+
+/// Game board dimensions
+pub const BOARD_WIDTH: usize = 10;
+pub const BOARD_HEIGHT: usize = 20;
+pub const VISIBLE_HEIGHT: usize = 20;
+pub const BUFFER_HEIGHT: usize = 4; // Extra rows above visible area for piece spawning
+
+/// Rendering constants
+pub const CELL_SIZE: f32 = 30.0;
+pub const BOARD_OFFSET_X: f32 = 50.0;
+pub const BOARD_OFFSET_Y: f32 = 50.0;
+pub const GRID_LINE_WIDTH: f32 = 1.0;
+
+/// Window dimensions
+pub const WINDOW_WIDTH: i32 = 800;
+pub const WINDOW_HEIGHT: i32 = 600;
+pub const TARGET_FPS: i32 = 60;
+
+/// Game timing (in seconds)
+pub const INITIAL_DROP_TIME: f64 = 1.0; // 1 second per drop at level 1
+pub const FAST_DROP_MULTIPLIER: f64 = 0.05; // Speed up factor for soft drop
+pub const LOCK_DELAY: f64 = 0.5; // Time before piece locks in place
+
+/// Input timing (in seconds)
+pub const INPUT_REPEAT_DELAY: f64 = 0.167; // Initial delay before key repeat
+pub const INPUT_REPEAT_RATE: f64 = 0.033; // Time between repeated inputs
+
+/// Scoring constants
+pub const SCORE_SINGLE_LINE: u32 = 100;
+pub const SCORE_DOUBLE_LINE: u32 = 300;
+pub const SCORE_TRIPLE_LINE: u32 = 500;
+pub const SCORE_TETRIS: u32 = 800;
+pub const SCORE_SOFT_DROP: u32 = 1;
+pub const SCORE_HARD_DROP: u32 = 2;
+
+/// Level progression
+pub const LINES_PER_LEVEL: u32 = 10;
+pub const LEVEL_SPEED_MULTIPLIER: f64 = 0.85; // Speed increase per level
+
+/// UI Constants
+pub const UI_MARGIN: f32 = 20.0;
+pub const TEXT_SIZE: f32 = 24.0;
+pub const TITLE_TEXT_SIZE: f32 = 32.0;
+
+/// Game area calculations (computed from above constants)
+pub const BOARD_WIDTH_PX: f32 = BOARD_WIDTH as f32 * CELL_SIZE;
+pub const BOARD_HEIGHT_PX: f32 = VISIBLE_HEIGHT as f32 * CELL_SIZE;
+
+/// Next piece preview area
+pub const PREVIEW_OFFSET_X: f32 = BOARD_OFFSET_X + BOARD_WIDTH_PX + UI_MARGIN;
+pub const PREVIEW_OFFSET_Y: f32 = BOARD_OFFSET_Y;
+pub const PREVIEW_SIZE: f32 = 4.0 * CELL_SIZE;
+
+/// Hold piece area
+pub const HOLD_OFFSET_X: f32 = UI_MARGIN;
+pub const HOLD_OFFSET_Y: f32 = BOARD_OFFSET_Y;
+pub const HOLD_SIZE: f32 = 4.0 * CELL_SIZE;
+
+/// Game window title
+pub const WINDOW_TITLE: &str = "Rust Tetris";
+
+/// Debug settings
+pub const DEBUG_MODE: bool = cfg!(debug_assertions);
+pub const SHOW_FPS: bool = DEBUG_MODE;
