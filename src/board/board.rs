@@ -149,28 +149,36 @@ impl Board {
             return 0;
         }
         
-        let lines_cleared = lines_to_clear.len() as u32;
+        let lines_cleared_count = lines_to_clear.len() as u32;
         
-        // Sort lines in descending order to clear from bottom to top
+        // Sort lines in ascending order
         let mut sorted_lines = lines_to_clear.to_vec();
-        sorted_lines.sort_by(|a, b| b.cmp(a));
+        sorted_lines.sort();
         
-        // Clear each line and drop rows above
-        for &line_y in &sorted_lines {
-            // Move all rows above down by one
-            for y in (1..=line_y).rev() {
-                self.grid[y] = self.grid[y - 1];
+        // Create a new grid by copying non-cleared lines
+        let mut new_grid = [[Cell::Empty; BOARD_WIDTH]; BOARD_HEIGHT + BUFFER_HEIGHT];
+        let mut new_y = (BOARD_HEIGHT + BUFFER_HEIGHT) - 1; // Start from bottom
+        
+        // Copy lines from bottom to top, skipping cleared lines
+        for y in (0..(BOARD_HEIGHT + BUFFER_HEIGHT)).rev() {
+            if !sorted_lines.contains(&y) {
+                // This line is not being cleared, copy it
+                new_grid[new_y] = self.grid[y];
+                if new_y > 0 {
+                    new_y -= 1;
+                }
             }
-            
-            // Clear the top row
-            self.grid[0] = [Cell::Empty; BOARD_WIDTH];
+            // If this line is being cleared, skip it (don't copy)
         }
         
+        // Replace the old grid with the new one
+        self.grid = new_grid;
+        
         // Update statistics
-        self.lines_cleared += lines_cleared;
+        self.lines_cleared += lines_cleared_count;
         self.level = (self.lines_cleared / LINES_PER_LEVEL) + 1;
         
-        lines_cleared
+        lines_cleared_count
     }
     
     /// Get the current level
@@ -261,5 +269,188 @@ impl Board {
 impl Default for Board {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphics::colors::*;
+
+    #[test]
+    fn test_new_board() {
+        let board = Board::new();
+        assert_eq!(board.level(), 1);
+        assert_eq!(board.lines_cleared(), 0);
+        assert_eq!(board.filled_cells_count(), 0);
+        assert!(!board.is_game_over());
+    }
+
+    #[test]
+    fn test_cell_operations() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_I;
+        
+        // Test setting and getting cells
+        assert!(board.set_cell(5, 10, Cell::Filled(test_color)));
+        
+        let cell = board.get_cell(5, 10).unwrap();
+        assert_eq!(cell, Cell::Filled(test_color));
+        assert!(cell.is_filled());
+        assert!(!cell.is_empty());
+        assert_eq!(cell.color(), Some(test_color));
+        
+        // Test bounds checking
+        assert!(!board.set_cell(-1, 10, Cell::Filled(test_color)));
+        assert!(!board.set_cell(10, 10, Cell::Filled(test_color)));
+        assert_eq!(board.get_cell(-1, 10), None);
+        assert_eq!(board.get_cell(10, 10), None);
+    }
+
+    #[test]
+    fn test_position_validation() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_T;
+        
+        // Empty position should be valid
+        assert!(board.is_position_valid(5, 10));
+        
+        // Fill a cell
+        board.set_cell(5, 10, Cell::Filled(test_color));
+        
+        // Filled position should not be valid
+        assert!(!board.is_position_valid(5, 10));
+        
+        // Out of bounds positions should not be valid
+        assert!(!board.is_position_valid(-1, 10));
+        assert!(!board.is_position_valid(10, 10));
+        
+        // Above visible area should be valid (spawn area)
+        assert!(board.is_position_valid(5, -1));
+    }
+
+    #[test]
+    fn test_line_operations() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_S;
+        
+        // Empty line tests
+        assert!(board.is_line_empty(23));
+        assert!(!board.is_line_full(23));
+        
+        // Fill some cells in line 23
+        for x in 0..5 {
+            board.set_cell(x, 23, Cell::Filled(test_color));
+        }
+        
+        // Partially filled line
+        assert!(!board.is_line_empty(23));
+        assert!(!board.is_line_full(23));
+        
+        // Fill the entire line
+        for x in 5..10 {
+            board.set_cell(x, 23, Cell::Filled(test_color));
+        }
+        
+        // Full line
+        assert!(!board.is_line_empty(23));
+        assert!(board.is_line_full(23));
+    }
+
+    #[test]
+    fn test_line_clearing() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_Z;
+        
+        // Fill two complete lines
+        for x in 0..10 {
+            board.set_cell(x, 22, Cell::Filled(test_color));
+            board.set_cell(x, 23, Cell::Filled(test_color));
+        }
+        
+        // Add a block above the complete lines
+        board.set_cell(0, 21, Cell::Filled(test_color));
+        
+        assert_eq!(board.filled_cells_count(), 21); // 20 + 1
+        
+        // Find and clear complete lines
+        let complete_lines = board.find_complete_lines();
+        assert_eq!(complete_lines.len(), 2);
+        assert!(complete_lines.contains(&22));
+        assert!(complete_lines.contains(&23));
+        
+        let lines_cleared = board.clear_lines(&complete_lines);
+        assert_eq!(lines_cleared, 2);
+        assert_eq!(board.lines_cleared(), 2);
+        assert_eq!(board.level(), 1); // Still level 1 (need 10 lines for level 2)
+        
+        // The block that was at (0, 21) should now be at (0, 23)
+        assert_eq!(board.get_cell(0, 23).unwrap(), Cell::Filled(test_color));
+        
+        // After clearing 2 complete lines (20 blocks), we should have 1 block remaining
+        assert_eq!(board.filled_cells_count(), 1);
+    }
+
+    #[test]
+    fn test_column_height() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_J;
+        
+        // Empty column should have height 0
+        assert_eq!(board.column_height(5), 0);
+        
+        // Add blocks to column 5
+        board.set_cell(5, 23, Cell::Filled(test_color)); // Bottom
+        board.set_cell(5, 22, Cell::Filled(test_color)); // Middle
+        board.set_cell(5, 20, Cell::Filled(test_color)); // Top (with gap)
+        
+        // Height should be from top filled cell to bottom
+        let expected_height = (BOARD_HEIGHT + BUFFER_HEIGHT) - 20; // 24 - 20 = 4
+        assert_eq!(board.column_height(5), expected_height);
+    }
+
+    #[test]
+    fn test_game_over() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_L;
+        
+        // Game should not be over initially
+        assert!(!board.is_game_over());
+        
+        // Fill a cell in the buffer area (spawn area)
+        board.set_cell(5, 2, Cell::Filled(test_color)); // Buffer area
+        
+        // Game should now be over
+        assert!(board.is_game_over());
+    }
+
+    #[test]
+    fn test_board_clear() {
+        let mut board = Board::new();
+        let test_color = TETROMINO_O;
+        
+        // Add some blocks and statistics
+        board.set_cell(0, 23, Cell::Filled(test_color));
+        board.set_cell(1, 23, Cell::Filled(test_color));
+        
+        // Simulate some lines cleared
+        for x in 0..10 {
+            board.set_cell(x, 22, Cell::Filled(test_color));
+        }
+        let complete_lines = board.find_complete_lines();
+        board.clear_lines(&complete_lines);
+        
+        // Verify state before clear
+        assert!(board.filled_cells_count() > 0);
+        assert!(board.lines_cleared() > 0);
+        
+        // Clear the board
+        board.clear();
+        
+        // Verify everything is reset
+        assert_eq!(board.filled_cells_count(), 0);
+        assert_eq!(board.lines_cleared(), 0);
+        assert_eq!(board.level(), 1);
+        assert!(!board.is_game_over());
     }
 }
