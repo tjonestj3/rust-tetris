@@ -24,6 +24,8 @@ pub const LOCK_DELAY: f64 = 0.5; // Time before piece locks in place
 /// Input timing (in seconds)
 pub const INPUT_REPEAT_DELAY: f64 = 0.167; // Initial delay before key repeat
 pub const INPUT_REPEAT_RATE: f64 = 0.033; // Time between repeated inputs
+pub const SOFT_DROP_INTERVAL: f64 = 0.05; // Time between soft drop steps when held
+pub const LINE_CLEAR_ANIMATION_TIME: f64 = 0.5; // Duration of line clearing animation
 
 /// Scoring constants
 pub const SCORE_SINGLE_LINE: u32 = 100;

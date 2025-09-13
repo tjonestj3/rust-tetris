@@ -32,6 +32,12 @@ pub struct Game {
     pub drop_interval: f64,
     /// Game time in seconds
     pub game_time: f64,
+    /// Lines being cleared with animation
+    pub clearing_lines: Vec<usize>,
+    /// Line clearing animation timer
+    pub clear_animation_timer: f64,
+    /// Soft drop input timer
+    pub soft_drop_timer: f64,
 }
 
 impl Game {
@@ -46,6 +52,9 @@ impl Game {
             drop_timer: 0.0,
             drop_interval: INITIAL_DROP_TIME,
             game_time: 0.0,
+            clearing_lines: Vec::new(),
+            clear_animation_timer: 0.0,
+            soft_drop_timer: 0.0,
         };
         
         // Spawn the first piece
@@ -61,7 +70,18 @@ impl Game {
         }
         
         self.game_time += delta_time;
+        
+        // Handle line clearing animation
+        if !self.clearing_lines.is_empty() {
+            self.clear_animation_timer += delta_time;
+            if self.clear_animation_timer >= LINE_CLEAR_ANIMATION_TIME {
+                self.finish_line_clear();
+            }
+            return; // Don't update other game logic during animation
+        }
+        
         self.drop_timer += delta_time;
+        self.soft_drop_timer += delta_time;
         
         // Check if it's time to drop the current piece
         if self.drop_timer >= self.drop_interval {
@@ -113,11 +133,11 @@ impl Game {
                 }
             }
             
-            // Clear any complete lines
+            // Check for complete lines and start animation
             let complete_lines = self.board.find_complete_lines();
             if !complete_lines.is_empty() {
-                let lines_cleared = self.board.clear_lines(&complete_lines);
-                self.add_score_for_lines(lines_cleared);
+                self.start_line_clear_animation(complete_lines);
+                return; // Don't spawn next piece until animation is done
             }
             
             // Check game over
@@ -235,6 +255,64 @@ impl Game {
     /// Get lines cleared
     pub fn lines_cleared(&self) -> u32 {
         self.board.lines_cleared()
+    }
+    
+    /// Start line clearing animation
+    pub fn start_line_clear_animation(&mut self, lines: Vec<usize>) {
+        self.clearing_lines = lines;
+        self.clear_animation_timer = 0.0;
+    }
+    
+    /// Finish line clearing animation and actually clear the lines
+    pub fn finish_line_clear(&mut self) {
+        if !self.clearing_lines.is_empty() {
+            let lines_cleared = self.board.clear_lines(&self.clearing_lines);
+            self.add_score_for_lines(lines_cleared);
+            self.clearing_lines.clear();
+            self.clear_animation_timer = 0.0;
+        }
+        
+        // Check game over after clearing lines
+        if self.board.is_game_over() {
+            self.state = GameState::GameOver;
+            return;
+        }
+        
+        // Spawn next piece
+        self.spawn_next_piece();
+    }
+    
+    /// Handle continuous soft drop
+    pub fn update_soft_drop(&mut self, is_held: bool) {
+        if is_held && self.soft_drop_timer >= SOFT_DROP_INTERVAL {
+            if self.move_piece(0, 1) {
+                self.score += SCORE_SOFT_DROP;
+                self.soft_drop_timer = 0.0;
+            }
+        }
+        
+        if !is_held {
+            self.soft_drop_timer = SOFT_DROP_INTERVAL; // Allow immediate drop when pressed
+        }
+    }
+    
+    /// Check if lines are currently being cleared (for rendering)
+    pub fn is_clearing_lines(&self) -> bool {
+        !self.clearing_lines.is_empty()
+    }
+    
+    /// Get the lines being cleared (for animation rendering)
+    pub fn get_clearing_lines(&self) -> &[usize] {
+        &self.clearing_lines
+    }
+    
+    /// Get the clear animation progress (0.0 to 1.0)
+    pub fn get_clear_animation_progress(&self) -> f64 {
+        if self.clearing_lines.is_empty() {
+            0.0
+        } else {
+            (self.clear_animation_timer / LINE_CLEAR_ANIMATION_TIME).min(1.0)
+        }
     }
 }
 

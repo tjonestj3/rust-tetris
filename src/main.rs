@@ -83,9 +83,16 @@ async fn main() {
         // Draw enhanced Tetris board with real data
         draw_enhanced_board_with_data(&game.board);
         
-        // Draw the current falling piece
-        if let Some(ref piece) = game.current_piece {
-            draw_falling_piece(piece);
+        // Draw line clearing animation if active
+        if game.is_clearing_lines() {
+            draw_line_clear_animation(&game);
+        }
+        
+        // Draw the current falling piece (only if not clearing lines)
+        if !game.is_clearing_lines() {
+            if let Some(ref piece) = game.current_piece {
+                draw_falling_piece(piece);
+            }
         }
         
         // Draw next piece preview
@@ -162,28 +169,27 @@ fn handle_input(game: &mut Game) {
         return;
     }
     
-    // Movement
-    if is_key_pressed(KeyCode::Left) {
+    // Movement (Arrow keys + WASD)
+    if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
         game.move_piece(-1, 0);
     }
-    if is_key_pressed(KeyCode::Right) {
+    if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
         game.move_piece(1, 0);
     }
-    if is_key_pressed(KeyCode::Down) {
-        if game.move_piece(0, 1) {
-            game.score += SCORE_SOFT_DROP;
-        }
-    }
     
-    // Rotation
-    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) {
+    // Continuous soft drop (Down arrow + S key)
+    let soft_drop_held = is_key_down(KeyCode::Down) || is_key_down(KeyCode::S);
+    game.update_soft_drop(soft_drop_held);
+    
+    // Rotation (Up/X/W for clockwise, Z for counterclockwise)
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::W) {
         game.rotate_piece_clockwise();
     }
     if is_key_pressed(KeyCode::Z) {
         game.rotate_piece_counterclockwise();
     }
     
-    // Hard drop
+    // Hard drop (Space)
     if is_key_pressed(KeyCode::Space) {
         game.hard_drop();
     }
@@ -234,6 +240,52 @@ fn draw_falling_piece(piece: &Tetromino) {
                 4.0,
                 Color::new(0.0, 0.0, 0.0, 0.2),
             );
+        }
+    }
+}
+
+/// Draw line clearing animation
+fn draw_line_clear_animation(game: &Game) {
+    let progress = game.get_clear_animation_progress();
+    let clearing_lines = game.get_clearing_lines();
+    
+    for &line_y in clearing_lines {
+        // Only animate lines in visible area
+        if line_y >= BUFFER_HEIGHT {
+            let visible_y = line_y - BUFFER_HEIGHT;
+            let anim_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
+            
+            // Create flashing white effect
+            let flash_alpha = ((progress * 10.0).sin() * 0.5 + 0.5) as f32;
+            let flash_color = Color::new(1.0, 1.0, 1.0, flash_alpha * 0.8);
+            
+            // Draw flashing overlay across the entire line
+            draw_rectangle(
+                BOARD_OFFSET_X,
+                anim_y,
+                BOARD_WIDTH_PX,
+                CELL_SIZE,
+                flash_color,
+            );
+            
+            // Add some sparkle effects
+            for i in 0..BOARD_WIDTH {
+                let sparkle_x = BOARD_OFFSET_X + (i as f32 * CELL_SIZE) + CELL_SIZE / 2.0;
+                let sparkle_y = anim_y + CELL_SIZE / 2.0;
+                
+                let sparkle_phase = progress * 6.28 + (i as f64 * 0.5);
+                let sparkle_alpha = (sparkle_phase.sin() * 0.5 + 0.5) as f32;
+                
+                if sparkle_alpha > 0.7 {
+                    draw_rectangle(
+                        sparkle_x - 2.0,
+                        sparkle_y - 2.0,
+                        4.0,
+                        4.0,
+                        Color::new(1.0, 1.0, 0.8, sparkle_alpha),
+                    );
+                }
+            }
         }
     }
 }
@@ -455,9 +507,12 @@ fn draw_enhanced_ui(game: &Game) {
     // Instructions with background
     let instructions = vec![
         "Controls:",
-        "ESC - Quit Game",
-        "Arrow Keys - Move (Coming Soon!)",
-        "Space - Drop (Coming Soon!)",
+        "← → / A D - Move",
+        "↓ S - Soft Drop (hold)",
+        "↑ X W - Rotate CW",
+        "Z - Rotate CCW",
+        "Space - Hard Drop",
+        "P - Pause, R - Reset",
     ];
     
     let inst_x = 20.0;

@@ -76,7 +76,7 @@ impl Tetromino {
     pub fn new(piece_type: TetrominoType) -> Self {
         let mut tetromino = Self {
             piece_type,
-            position: (4, 0), // Center top of board
+            position: (4, 2), // Start lower in buffer area for visibility
             rotation: 0,
             blocks: Vec::new(),
         };
@@ -126,7 +126,7 @@ impl Tetromino {
     
     /// Reset position to spawn point
     pub fn reset_position(&mut self) {
-        self.position = (4, 0);
+        self.position = (4, 2);
     }
     
     /// Get the bounding box of the tetromino (min_x, min_y, max_x, max_y)
