@@ -9,12 +9,12 @@ pub const BUFFER_HEIGHT: usize = 4; // Extra rows above visible area for piece s
 /// Rendering constants
 pub const CELL_SIZE: f32 = 30.0;
 pub const BOARD_OFFSET_X: f32 = 50.0;
-pub const BOARD_OFFSET_Y: f32 = 50.0;
+pub const BOARD_OFFSET_Y: f32 = 100.0; // Increased to leave room for title
 pub const GRID_LINE_WIDTH: f32 = 1.0;
 
-/// Window dimensions
-pub const WINDOW_WIDTH: i32 = 800;
-pub const WINDOW_HEIGHT: i32 = 600;
+/// Window dimensions (calculated to fit everything properly)
+pub const WINDOW_WIDTH: i32 = 900;  // Extra width for UI elements
+pub const WINDOW_HEIGHT: i32 = 750; // Height to fit: 100 (top) + 600 (board) + 50 (bottom)
 pub const TARGET_FPS: i32 = 60;
 
 /// Game timing (in seconds)

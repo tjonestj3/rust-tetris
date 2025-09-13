@@ -19,6 +19,12 @@ async fn main() {
     // Initialize logging
     env_logger::init();
     log::info!("Starting Rust Tetris v{}", env!("CARGO_PKG_VERSION"));
+    
+    // Log layout calculations for debugging
+    log::info!("Window: {}x{}", WINDOW_WIDTH, WINDOW_HEIGHT);
+    log::info!("Board: {}x{} cells = {}x{} pixels", BOARD_WIDTH, VISIBLE_HEIGHT, BOARD_WIDTH_PX, BOARD_HEIGHT_PX);
+    log::info!("Board position: ({}, {})", BOARD_OFFSET_X, BOARD_OFFSET_Y);
+    log::info!("Required height: {} + {} = {}", BOARD_OFFSET_Y, BOARD_HEIGHT_PX, BOARD_OFFSET_Y + BOARD_HEIGHT_PX);
 
     // Initialize game state (placeholder for now)
     let mut frame_count = 0u64;
@@ -98,6 +104,15 @@ fn draw_board_placeholder() {
         BOARD_WIDTH_PX,
         BOARD_HEIGHT_PX,
         BOARD_BACKGROUND,
+    );
+    
+    // Draw board title
+    draw_text(
+        "Game Board (10x20)",
+        BOARD_OFFSET_X,
+        BOARD_OFFSET_Y - 10.0,
+        TEXT_SIZE,
+        TEXT_COLOR,
     );
 
     // Draw grid lines
