@@ -1,7 +1,9 @@
 use macroquad::prelude::*;
 use rust_tetris::game::config::*;
 use rust_tetris::graphics::colors::*;
-use rust_tetris::board::{Board, Cell};
+use rust_tetris::board::Board;
+use rust_tetris::game::{Game, GameState};
+use rust_tetris::tetromino::{Tetromino, TetrominoType};
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -30,14 +32,14 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
-    // Initialize game board and state
-    let mut board = Board::new();
+    // Initialize game state
+    let mut game = Game::new();
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
     let mut fps = 0.0;
     
-    // Add some test blocks to showcase the board functionality
-    add_demo_blocks(&mut board);
+    log::info!("Game initialized with first piece: {:?}", 
+               game.current_piece.as_ref().map(|p| p.piece_type).unwrap_or(TetrominoType::T));
 
     // Main game loop
     loop {
@@ -52,11 +54,11 @@ async fn main() {
             last_fps_time = current_time;
         }
 
-        // Handle input (basic ESC to quit for now)
-        if is_key_pressed(KeyCode::Escape) {
-            log::info!("Game quit by user");
-            break;
-        }
+        // Handle input
+        handle_input(&mut game);
+        
+        // Update game logic
+        game.update(delta_time as f64);
 
         // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
@@ -79,10 +81,18 @@ async fn main() {
         );
 
         // Draw enhanced Tetris board with real data
-        draw_enhanced_board_with_data(&board);
+        draw_enhanced_board_with_data(&game.board);
+        
+        // Draw the current falling piece
+        if let Some(ref piece) = game.current_piece {
+            draw_falling_piece(piece);
+        }
+        
+        // Draw next piece preview
+        draw_next_piece_preview(&game.next_piece);
         
         // Draw title with enhanced styling
-        draw_enhanced_ui(&board);
+        draw_enhanced_ui(&game);
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -140,36 +150,161 @@ fn create_chess_background() -> Image {
     image
 }
 
-/// Add some demo blocks to showcase board functionality
-fn add_demo_blocks(board: &mut Board) {
-    // Add some sample pieces to demonstrate the board
-    let demo_patterns = vec![
-        // Bottom row - almost complete line
-        (0, 23, TETROMINO_I), (1, 23, TETROMINO_O), (2, 23, TETROMINO_T), 
-        (3, 23, TETROMINO_S), (4, 23, TETROMINO_Z), (5, 23, TETROMINO_J), 
-        (6, 23, TETROMINO_L), (7, 23, TETROMINO_I), // Missing 2 blocks for demo
-        
-        // Second row - partial fill
-        (1, 22, TETROMINO_T), (2, 22, TETROMINO_T), (3, 22, TETROMINO_T),
-        (6, 22, TETROMINO_S), (7, 22, TETROMINO_S), (8, 22, TETROMINO_S),
-        
-        // Third row - scattered blocks
-        (0, 21, TETROMINO_J), (4, 21, TETROMINO_O), (9, 21, TETROMINO_L),
-        
-        // Tower on the left
-        (0, 20, TETROMINO_I), (0, 19, TETROMINO_I), (0, 18, TETROMINO_I),
-        
-        // Tower on the right  
-        (9, 20, TETROMINO_Z), (9, 19, TETROMINO_Z),
-    ];
-    
-    for (x, y, color) in demo_patterns {
-        board.set_cell(x, y, Cell::Filled(color));
+/// Handle player input
+fn handle_input(game: &mut Game) {
+    // Quit game
+    if is_key_pressed(KeyCode::Escape) {
+        std::process::exit(0);
     }
     
-    log::info!("Added {} demo blocks to board", board.filled_cells_count());
-    log::info!("Board level: {}, Lines cleared: {}", board.level(), board.lines_cleared());
+    // Only handle game input when playing
+    if game.state != GameState::Playing {
+        return;
+    }
+    
+    // Movement
+    if is_key_pressed(KeyCode::Left) {
+        game.move_piece(-1, 0);
+    }
+    if is_key_pressed(KeyCode::Right) {
+        game.move_piece(1, 0);
+    }
+    if is_key_pressed(KeyCode::Down) {
+        if game.move_piece(0, 1) {
+            game.score += SCORE_SOFT_DROP;
+        }
+    }
+    
+    // Rotation
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) {
+        game.rotate_piece_clockwise();
+    }
+    if is_key_pressed(KeyCode::Z) {
+        game.rotate_piece_counterclockwise();
+    }
+    
+    // Hard drop
+    if is_key_pressed(KeyCode::Space) {
+        game.hard_drop();
+    }
+    
+    // Pause
+    if is_key_pressed(KeyCode::P) {
+        game.toggle_pause();
+    }
+    
+    // Reset game (R key)
+    if is_key_pressed(KeyCode::R) {
+        game.reset();
+    }
 }
+
+/// Draw the currently falling piece
+fn draw_falling_piece(piece: &Tetromino) {
+    for (x, y) in piece.absolute_blocks() {
+        // Only draw blocks that are in the visible area
+        if y >= BUFFER_HEIGHT as i32 {
+            let visible_y = y - BUFFER_HEIGHT as i32;
+            let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
+            let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
+            
+            // Draw filled cell with border
+            draw_rectangle(
+                cell_x + 1.0,
+                cell_y + 1.0,
+                CELL_SIZE - 2.0,
+                CELL_SIZE - 2.0,
+                piece.color(),
+            );
+            
+            // Draw subtle highlight for 3D effect
+            draw_rectangle(
+                cell_x + 2.0,
+                cell_y + 2.0,
+                CELL_SIZE - 4.0,
+                6.0,
+                Color::new(1.0, 1.0, 1.0, 0.3),
+            );
+            
+            // Draw subtle shadow at bottom
+            draw_rectangle(
+                cell_x + 2.0,
+                cell_y + CELL_SIZE - 6.0,
+                CELL_SIZE - 4.0,
+                4.0,
+                Color::new(0.0, 0.0, 0.0, 0.2),
+            );
+        }
+    }
+}
+
+/// Draw the next piece preview
+fn draw_next_piece_preview(next_piece_type: &TetrominoType) {
+    let preview_x = PREVIEW_OFFSET_X;
+    let preview_y = PREVIEW_OFFSET_Y;
+    
+    // Draw preview panel background
+    draw_rectangle(
+        preview_x - 10.0,
+        preview_y - 30.0,
+        PREVIEW_SIZE + 20.0,
+        PREVIEW_SIZE + 40.0,
+        Color::new(0.0, 0.0, 0.0, 0.6),
+    );
+    
+    // Draw preview panel border
+    draw_rectangle_lines(
+        preview_x - 10.0,
+        preview_y - 30.0,
+        PREVIEW_SIZE + 20.0,
+        PREVIEW_SIZE + 40.0,
+        2.0,
+        UI_BORDER,
+    );
+    
+    // Draw "NEXT" label
+    draw_text(
+        "NEXT",
+        preview_x,
+        preview_y - 10.0,
+        TEXT_SIZE,
+        Color::new(1.0, 0.9, 0.7, 1.0),
+    );
+    
+    // Create a temporary piece for preview
+    let preview_piece = Tetromino::new(*next_piece_type);
+    let blocks = preview_piece.blocks;
+    
+    // Center the piece in the preview area
+    let center_x = preview_x + PREVIEW_SIZE / 2.0;
+    let center_y = preview_y + PREVIEW_SIZE / 2.0;
+    
+    // Draw the piece blocks
+    for (dx, dy) in blocks {
+        let block_x = center_x + (dx as f32 * CELL_SIZE * 0.7); // Smaller size for preview
+        let block_y = center_y + (dy as f32 * CELL_SIZE * 0.7);
+        let block_size = CELL_SIZE * 0.7;
+        
+        // Draw filled cell
+        draw_rectangle(
+            block_x,
+            block_y,
+            block_size - 1.0,
+            block_size - 1.0,
+            next_piece_type.color(),
+        );
+        
+        // Draw highlight
+        draw_rectangle(
+            block_x + 1.0,
+            block_y + 1.0,
+            block_size - 3.0,
+            4.0,
+            Color::new(1.0, 1.0, 1.0, 0.3),
+        );
+    }
+}
+
 
 /// Draw enhanced Tetris board with modern styling and real data
 fn draw_enhanced_board_with_data(board: &Board) {
@@ -280,44 +415,9 @@ fn draw_enhanced_board_with_data(board: &Board) {
     );
 }
 
-/// Draw sample tetromino blocks for visual preview
-fn draw_sample_tetromino_preview() {
-    let sample_positions = vec![
-        (2, 18, TETROMINO_I), // I piece preview
-        (5, 18, TETROMINO_O), // O piece preview  
-        (8, 18, TETROMINO_T), // T piece preview
-        (1, 19, TETROMINO_S), // S piece preview
-        (4, 19, TETROMINO_Z), // Z piece preview
-        (7, 19, TETROMINO_J), // J piece preview
-        (9, 19, TETROMINO_L), // L piece preview
-    ];
-    
-    for (x, y, color) in sample_positions {
-        let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
-        let cell_y = BOARD_OFFSET_Y + (y as f32 * CELL_SIZE);
-        
-        // Draw filled cell with border
-        draw_rectangle(
-            cell_x + 1.0,
-            cell_y + 1.0,
-            CELL_SIZE - 2.0,
-            CELL_SIZE - 2.0,
-            color,
-        );
-        
-        // Draw subtle highlight
-        draw_rectangle(
-            cell_x + 2.0,
-            cell_y + 2.0,
-            CELL_SIZE - 4.0,
-            8.0,
-            Color::new(1.0, 1.0, 1.0, 0.3),
-        );
-    }
-}
 
 /// Draw enhanced UI elements
-fn draw_enhanced_ui(board: &Board) {
+fn draw_enhanced_ui(game: &Game) {
     // Draw title with shadow effect
     let title = "RUST TETRIS";
     let title_x = (WINDOW_WIDTH as f32 - measure_text(title, None, TITLE_TEXT_SIZE as u16, 1.0).width) / 2.0;
@@ -383,35 +483,46 @@ fn draw_enhanced_ui(board: &Board) {
         inst_y += 22.0;
     }
     
-    // Board statistics panel
-    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 30.0;
-    let mut stats_y = BOARD_OFFSET_Y;
+    // Game statistics panel
+    let stats_x = 20.0;
+    let mut stats_y = BOARD_OFFSET_Y + BOARD_HEIGHT_PX - 200.0;
     
     // Stats background
     draw_rectangle(
         stats_x - 10.0,
-        stats_y - 10.0,
+        stats_y - 30.0,
         200.0,
-        120.0,
-        Color::new(0.0, 0.0, 0.0, 0.6),
+        180.0,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+    
+    // Stats border
+    draw_rectangle_lines(
+        stats_x - 10.0,
+        stats_y - 30.0,
+        200.0,
+        180.0,
+        2.0,
+        UI_BORDER,
     );
     
     // Stats title
     draw_text(
-        "Board Statistics",
+        "GAME STATS",
         stats_x,
-        stats_y,
+        stats_y - 10.0,
         TEXT_SIZE * 0.9,
         Color::new(1.0, 0.9, 0.7, 1.0),
     );
-    stats_y += 25.0;
+    stats_y += 15.0;
     
     // Individual stats
     let stats = vec![
-        format!("Level: {}", board.level()),
-        format!("Lines: {}", board.lines_cleared()),
-        format!("Blocks: {}", board.filled_cells_count()),
-        format!("Size: {}×{}", BOARD_WIDTH, VISIBLE_HEIGHT),
+        format!("Score: {}", game.score),
+        format!("Level: {}", game.level()),
+        format!("Lines: {}", game.lines_cleared()),
+        format!("State: {:?}", game.state),
+        format!("Time: {:.0}s", game.game_time),
     ];
     
     for stat in stats {
@@ -422,11 +533,22 @@ fn draw_enhanced_ui(board: &Board) {
             TEXT_SIZE * 0.75,
             Color::new(0.9, 0.9, 0.95, 0.9),
         );
-        stats_y += 20.0;
+        stats_y += 22.0;
+    }
+    
+    // Current piece info
+    if let Some(ref piece) = game.current_piece {
+        draw_text(
+            &format!("Current: {}", piece.piece_type.name()),
+            stats_x,
+            stats_y,
+            TEXT_SIZE * 0.7,
+            piece.color(),
+        );
     }
     
     // Board info label
-    let board_info = "Demo Board Data";
+    let board_info = "Live Game Data";
     draw_text(
         board_info,
         BOARD_OFFSET_X,

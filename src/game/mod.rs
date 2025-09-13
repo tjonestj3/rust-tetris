@@ -3,4 +3,4 @@
 pub mod config;
 pub mod state;
 
-pub use state::Game;
+pub use state::{Game, GameState};
