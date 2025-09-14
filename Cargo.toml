@@ -9,7 +9,7 @@ categories = ["games"]
 
 [dependencies]
 # Graphics and rendering
-macroquad = "0.4"
+macroquad = { version = "0.4", features = ["audio"] }
 
 # Serialization for save data and settings
 serde = { version = "1.0", features = ["derive"] }

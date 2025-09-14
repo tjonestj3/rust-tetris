@@ -62,15 +62,15 @@ impl AudioSystem {
         // Sound file mappings
         let sound_files = [
             (SoundType::UiClick, "assets/sounds/ui-click.wav"),
-            (SoundType::PieceSnap, "assets/sounds/piece-snap.mp3"),
+            (SoundType::PieceSnap, "assets/sounds/piece-snap.wav"),
             (SoundType::HardDrop, "assets/sounds/hard-drop.wav"),
             (SoundType::HoldPiece, "assets/sounds/hold-piece.wav"),
-            (SoundType::LineClear, "assets/sounds/line-clear.mp3"),
+            (SoundType::LineClear, "assets/sounds/line-clear.wav"),
             (SoundType::LevelComplete, "assets/sounds/level-complete.wav"),
-            (SoundType::Pause, "assets/sounds/pause.mp3"),
+            (SoundType::Pause, "assets/sounds/pause.wav"),
             (SoundType::GameOver, "assets/sounds/game-over.wav"),
             (SoundType::PowerAction, "assets/sounds/place-ghost-block.wav"),
-            (SoundType::BackgroundMusic, "assets/sounds/tetris-background-music.mp3"),
+            (SoundType::BackgroundMusic, "assets/sounds/tetris-background-music.wav"),
         ];
         
         for (sound_type, file_path) in sound_files {
@@ -80,7 +80,8 @@ impl AudioSystem {
                     log::debug!("Loaded sound: {:?} from {}", sound_type, file_path);
                 }
                 Err(e) => {
-                    log::warn!("Failed to load sound {:?} from {}: {}", sound_type, file_path, e);
+                    log::warn!("Failed to load sound {:?} from {}: {} - continuing without this sound", sound_type, file_path, e);
+                    // Continue loading other sounds even if one fails
                 }
             }
         }
