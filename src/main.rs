@@ -100,6 +100,11 @@ async fn main() {
             }
         }
         
+        // Draw ghost block cursor if in placement mode
+        if game.is_ghost_cursor_visible() {
+            draw_ghost_block_cursor(&game);
+        }
+        
         // Draw next piece preview
         draw_next_piece_preview(&game.next_piece);
         
@@ -172,6 +177,37 @@ fn handle_input(game: &mut Game) {
     // Only handle game input when playing
     if game.state != GameState::Playing {
         return;
+    }
+    
+    // Ghost block controls (available during normal play)
+    if is_key_pressed(KeyCode::B) {
+        if game.ghost_block_placement_mode {
+            // B to place block when in placement mode
+            game.place_ghost_block();
+        } else {
+            // B to activate ghost block placement mode
+            game.toggle_ghost_block_mode();
+        }
+    }
+    
+    // Ghost block cursor movement (only when in placement mode)
+    if game.ghost_block_placement_mode {
+        if is_key_pressed(KeyCode::M) {
+            // M for next position (right)
+            game.move_ghost_block_cursor(1, 0);
+        }
+        if is_key_pressed(KeyCode::N) {
+            // N for previous position (left)
+            game.move_ghost_block_cursor(-1, 0);
+        }
+        // Also allow arrow keys for up/down movement
+        if is_key_pressed(KeyCode::Up) {
+            game.move_ghost_block_cursor(0, -1);
+        }
+        if is_key_pressed(KeyCode::Down) {
+            game.move_ghost_block_cursor(0, 1);
+        }
+        return; // Skip normal game controls when in placement mode
     }
     
     // Continuous horizontal movement (Arrow keys + WASD)
@@ -285,6 +321,61 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
                 Color::new(base_color.r, base_color.g, base_color.b, 0.1),
             );
         }
+    }
+}
+
+/// Draw the ghost block cursor for placement
+fn draw_ghost_block_cursor(game: &Game) {
+    let (cursor_x, cursor_y) = game.ghost_block_cursor;
+    
+    // Only draw if cursor is in visible area
+    if cursor_y >= BUFFER_HEIGHT as i32 {
+        let visible_y = cursor_y - BUFFER_HEIGHT as i32;
+        let cell_x = BOARD_OFFSET_X + (cursor_x as f32 * CELL_SIZE);
+        let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
+        
+        // Draw blinking ghost block cursor with special effects
+        let ghost_color = Color::new(0.8, 0.8, 1.0, 0.8); // Light blue with transparency
+        
+        // Draw pulsing outline
+        let pulse = (game.ghost_block_blink_timer * 4.0).sin() as f32 * 0.3 + 0.7;
+        draw_rectangle_lines(
+            cell_x + 1.0,
+            cell_y + 1.0,
+            CELL_SIZE - 2.0,
+            CELL_SIZE - 2.0,
+            3.0 * pulse,
+            Color::new(ghost_color.r, ghost_color.g, ghost_color.b, pulse),
+        );
+        
+        // Draw inner glow
+        draw_rectangle(
+            cell_x + 4.0,
+            cell_y + 4.0,
+            CELL_SIZE - 8.0,
+            CELL_SIZE - 8.0,
+            Color::new(ghost_color.r, ghost_color.g, ghost_color.b, 0.3 * pulse),
+        );
+        
+        // Draw corner indicators
+        let corner_size = 6.0;
+        let corner_color = Color::new(1.0, 1.0, 1.0, pulse);
+        
+        // Top-left corner
+        draw_rectangle(cell_x, cell_y, corner_size, 2.0, corner_color);
+        draw_rectangle(cell_x, cell_y, 2.0, corner_size, corner_color);
+        
+        // Top-right corner
+        draw_rectangle(cell_x + CELL_SIZE - corner_size, cell_y, corner_size, 2.0, corner_color);
+        draw_rectangle(cell_x + CELL_SIZE - 2.0, cell_y, 2.0, corner_size, corner_color);
+        
+        // Bottom-left corner
+        draw_rectangle(cell_x, cell_y + CELL_SIZE - 2.0, corner_size, 2.0, corner_color);
+        draw_rectangle(cell_x, cell_y + CELL_SIZE - corner_size, 2.0, corner_size, corner_color);
+        
+        // Bottom-right corner
+        draw_rectangle(cell_x + CELL_SIZE - corner_size, cell_y + CELL_SIZE - 2.0, corner_size, 2.0, corner_color);
+        draw_rectangle(cell_x + CELL_SIZE - 2.0, cell_y + CELL_SIZE - corner_size, 2.0, corner_size, corner_color);
     }
 }
 
@@ -653,7 +744,8 @@ fn draw_enhanced_ui(game: &Game) {
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
-        "Ghost shows landing spot",
+        "B - Use Ghost Block (4 lines)",
+        "M/N - Move cursor, B - Place",
         "P - Pause, R - Reset",
     ];
     
@@ -718,17 +810,26 @@ fn draw_enhanced_ui(game: &Game) {
         format!("Score: {}", game.score),
         format!("Level: {}", game.level()),
         format!("Lines: {}", game.lines_cleared()),
+        format!("Ghost Blocks: {}", game.ghost_blocks_available),
         format!("State: {:?}", game.state),
         format!("Time: {:.0}s", game.game_time),
     ];
     
-    for stat in stats {
+    for (i, stat) in stats.iter().enumerate() {
+        let color = if i == 3 && game.ghost_blocks_available > 0 {
+            // Highlight ghost blocks count with pulsing effect when available
+            let pulse = (game.game_time * 3.0).sin() as f32 * 0.3 + 0.7;
+            Color::new(0.8, 0.8, 1.0, pulse) // Light blue pulsing
+        } else {
+            Color::new(0.9, 0.9, 0.95, 0.9) // Normal color
+        };
+        
         draw_text(
-            &stat,
+            stat,
             stats_x,
             stats_y,
             TEXT_SIZE * 0.75,
-            Color::new(0.9, 0.9, 0.95, 0.9),
+            color,
         );
         stats_y += 22.0;
     }
@@ -744,14 +845,35 @@ fn draw_enhanced_ui(game: &Game) {
         );
     }
     
-    // Board info label
-    let board_info = "Live Game Data";
-    draw_text(
-        board_info,
-        BOARD_OFFSET_X,
-        BOARD_OFFSET_Y - 15.0,
-        TEXT_SIZE * 0.8,
-        Color::new(0.8, 0.9, 1.0, 0.7),
-    );
+    // Board info label or ghost block placement mode indicator
+    if game.ghost_block_placement_mode {
+        let pulse = (game.ghost_block_blink_timer * 2.0).sin() as f32 * 0.3 + 0.7;
+        let placement_info = "GHOST BLOCK PLACEMENT MODE - Use M/N/Arrows to move, B to place";
+        draw_text(
+            placement_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 35.0,
+            TEXT_SIZE * 0.75,
+            Color::new(0.8, 0.8, 1.0, pulse),
+        );
+        
+        let board_info = "Live Game Data";
+        draw_text(
+            board_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 15.0,
+            TEXT_SIZE * 0.6,
+            Color::new(0.6, 0.7, 0.8, 0.5),
+        );
+    } else {
+        let board_info = "Live Game Data";
+        draw_text(
+            board_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 15.0,
+            TEXT_SIZE * 0.8,
+            Color::new(0.8, 0.9, 1.0, 0.7),
+        );
+    }
 }
 
