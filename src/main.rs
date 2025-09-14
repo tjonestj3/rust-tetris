@@ -4,6 +4,7 @@ use rust_tetris::graphics::colors::*;
 use rust_tetris::board::Board;
 use rust_tetris::game::{Game, GameState};
 use rust_tetris::tetromino::{Tetromino, TetrominoType};
+use rust_tetris::audio::system::{AudioSystem, SoundType};
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -32,6 +33,15 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
+    // Initialize and load audio system
+    let mut audio_system = AudioSystem::new();
+    if let Err(e) = audio_system.load_sounds().await {
+        log::warn!("Failed to initialize audio system: {}", e);
+    }
+    
+    // Start background music
+    audio_system.start_background_music();
+    
     // Initialize game state
     let mut game = Game::new();
     let mut frame_count = 0u64;
@@ -55,10 +65,20 @@ async fn main() {
         }
 
         // Handle input
-        handle_input(&mut game);
+        handle_input(&mut game, &audio_system);
+        
+        // Store previous state for audio event detection
+        let prev_score = game.score;
+        let prev_level = game.level();
+        let prev_lines_cleared = game.lines_cleared();
+        let was_clearing_lines = game.is_clearing_lines();
+        let prev_state = game.state;
         
         // Update game logic
         game.update(delta_time as f64);
+        
+        // Detect and play audio for game events
+        detect_and_play_audio_events(&game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
 
         // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
@@ -102,6 +122,9 @@ async fn main() {
         
         // Draw next piece preview
         draw_next_piece_preview(&game.next_piece);
+        
+        // Draw hold piece
+        draw_hold_piece(&game.held_piece, game.can_hold());
         
         // Draw title with enhanced styling
         draw_enhanced_ui(&game);
@@ -162,8 +185,8 @@ fn create_chess_background() -> Image {
     image
 }
 
-/// Handle player input
-fn handle_input(game: &mut Game) {
+/// Handle player input with audio feedback
+fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
     // Quit game
     if is_key_pressed(KeyCode::Escape) {
         std::process::exit(0);
@@ -178,6 +201,12 @@ fn handle_input(game: &mut Game) {
     let left_held = is_key_down(KeyCode::Left) || is_key_down(KeyCode::A);
     let right_held = is_key_down(KeyCode::Right) || is_key_down(KeyCode::D);
     
+    // Play movement sound on initial press only
+    if (is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A)) ||
+       (is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D)) {
+        audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+    }
+    
     game.update_left_movement(left_held);
     game.update_right_movement(right_held);
     
@@ -187,25 +216,39 @@ fn handle_input(game: &mut Game) {
     
     // Rotation (Up/X/W for clockwise, Z for counterclockwise)
     if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::W) {
-        game.rotate_piece_clockwise();
+        if game.rotate_piece_clockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
     }
     if is_key_pressed(KeyCode::Z) {
-        game.rotate_piece_counterclockwise();
+        if game.rotate_piece_counterclockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
     }
     
     // Hard drop (Space)
     if is_key_pressed(KeyCode::Space) {
         game.hard_drop();
+        audio_system.play_sound(SoundType::HardDrop);
+    }
+    
+    // Hold piece (C key)
+    if is_key_pressed(KeyCode::C) {
+        if game.hold_piece() {
+            audio_system.play_sound(SoundType::HoldPiece);
+        }
     }
     
     // Pause
     if is_key_pressed(KeyCode::P) {
         game.toggle_pause();
+        audio_system.play_sound(SoundType::Pause);
     }
     
     // Reset game (R key)
     if is_key_pressed(KeyCode::R) {
         game.reset();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
     }
 }
 
@@ -498,6 +541,118 @@ fn draw_next_piece_preview(next_piece_type: &TetrominoType) {
     }
 }
 
+/// Draw the hold piece preview
+fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
+    let hold_x = HOLD_OFFSET_X;
+    let hold_y = HOLD_OFFSET_Y;
+    
+    // Draw hold panel background
+    let bg_alpha = if can_hold { 0.6 } else { 0.3 }; // Dimmed when can't hold
+    draw_rectangle(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        Color::new(0.0, 0.0, 0.0, bg_alpha),
+    );
+    
+    // Draw hold panel border
+    let border_alpha = if can_hold { 1.0 } else { 0.5 };
+    draw_rectangle_lines(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        2.0,
+        Color::new(UI_BORDER.r, UI_BORDER.g, UI_BORDER.b, border_alpha),
+    );
+    
+    // Draw "HOLD" label with visual feedback
+    let label_color = if can_hold {
+        Color::new(1.0, 0.9, 0.7, 1.0)
+    } else {
+        Color::new(0.6, 0.6, 0.6, 1.0) // Grayed out when can't hold
+    };
+    
+    draw_text(
+        "HOLD",
+        hold_x,
+        hold_y - 10.0,
+        TEXT_SIZE,
+        label_color,
+    );
+    
+    // Draw the held piece if there is one
+    if let Some(piece_type) = held_piece {
+        // Create a temporary piece for preview
+        let hold_piece = Tetromino::new(*piece_type);
+        let blocks = hold_piece.blocks;
+        
+        // Center the piece in the hold area
+        let center_x = hold_x + HOLD_SIZE / 2.0;
+        let center_y = hold_y + HOLD_SIZE / 2.0;
+        
+        // Draw the piece blocks
+        let piece_alpha = if can_hold { 1.0 } else { 0.5 };
+        for (dx, dy) in blocks {
+            let block_x = center_x + (dx as f32 * CELL_SIZE * 0.7); // Smaller size for hold
+            let block_y = center_y + (dy as f32 * CELL_SIZE * 0.7);
+            let block_size = CELL_SIZE * 0.7;
+            
+            // Get piece color and apply alpha based on hold availability
+            let base_color = piece_type.color();
+            let final_color = Color::new(
+                base_color.r,
+                base_color.g,
+                base_color.b,
+                piece_alpha,
+            );
+            
+            // Draw filled cell
+            draw_rectangle(
+                block_x,
+                block_y,
+                block_size - 1.0,
+                block_size - 1.0,
+                final_color,
+            );
+            
+            // Draw highlight (only if can hold)
+            if can_hold {
+                draw_rectangle(
+                    block_x + 1.0,
+                    block_y + 1.0,
+                    block_size - 3.0,
+                    4.0,
+                    Color::new(1.0, 1.0, 1.0, 0.3),
+                );
+            }
+        }
+    } else {
+        // Show "C" key hint when no piece is held
+        let hint_color = if can_hold {
+            Color::new(0.8, 0.8, 0.9, 0.7)
+        } else {
+            Color::new(0.5, 0.5, 0.5, 0.5)
+        };
+        
+        draw_text(
+            "Press C",
+            hold_x + 5.0,
+            hold_y + HOLD_SIZE / 2.0 - 5.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+        draw_text(
+            "to hold",
+            hold_x + 8.0,
+            hold_y + HOLD_SIZE / 2.0 + 15.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+    }
+}
+
 
 /// Draw enhanced Tetris board with modern styling and real data
 fn draw_enhanced_board_with_data(board: &Board) {
@@ -609,6 +764,37 @@ fn draw_enhanced_board_with_data(board: &Board) {
 }
 
 
+/// Detect and play audio for game events
+fn detect_and_play_audio_events(
+    game: &Game,
+    audio_system: &AudioSystem,
+    _prev_score: u32,
+    prev_level: u32,
+    _prev_lines_cleared: u32,
+    was_clearing_lines: bool,
+    prev_state: GameState,
+) {
+    // Line clearing sound (when lines start clearing)
+    if !was_clearing_lines && game.is_clearing_lines() {
+        audio_system.play_sound(SoundType::LineClear);
+    }
+    
+    // Piece lock sound (when a piece was just locked, but not during line clearing)
+    if game.piece_just_locked && !game.is_clearing_lines() {
+        audio_system.play_sound_with_volume(SoundType::PieceSnap, 0.8);
+    }
+    
+    // Level up sound
+    if game.level() > prev_level {
+        audio_system.play_sound(SoundType::LevelComplete);
+    }
+    
+    // Game over sound
+    if prev_state == GameState::Playing && game.state == GameState::GameOver {
+        audio_system.play_sound(SoundType::GameOver);
+    }
+}
+
 /// Draw enhanced UI elements
 fn draw_enhanced_ui(game: &Game) {
     // Draw title with shadow effect
@@ -653,6 +839,7 @@ fn draw_enhanced_ui(game: &Game) {
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
+        "C - Hold Piece",
         "Ghost shows landing spot",
         "P - Pause, R - Reset",
     ];
@@ -665,7 +852,7 @@ fn draw_enhanced_ui(game: &Game) {
         inst_x - 10.0,
         inst_y - 25.0,
         280.0,
-        100.0,
+        120.0, // Increased height for hold piece instruction
         Color::new(0.0, 0.0, 0.0, 0.6),
     );
     
