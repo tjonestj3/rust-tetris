@@ -629,32 +629,32 @@ fn draw_next_piece_preview(next_piece_type: &TetrominoType) {
     let preview_x = PREVIEW_OFFSET_X;
     let preview_y = PREVIEW_OFFSET_Y;
     
-    // Draw preview panel background
+    // Draw preview panel background - retro style
     draw_rectangle(
         preview_x - 10.0,
         preview_y - 30.0,
         PREVIEW_SIZE + 20.0,
         PREVIEW_SIZE + 40.0,
-        Color::new(0.0, 0.0, 0.0, 0.6),
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
     );
     
-    // Draw preview panel border
+    // Draw preview panel border - cyan retro
     draw_rectangle_lines(
         preview_x - 10.0,
         preview_y - 30.0,
         PREVIEW_SIZE + 20.0,
         PREVIEW_SIZE + 40.0,
         2.0,
-        UI_BORDER,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
-    // Draw "NEXT" label
+    // Draw "NEXT" label - retro yellow
     draw_text(
         "NEXT",
         preview_x,
         preview_y - 10.0,
         TEXT_SIZE,
-        Color::new(1.0, 0.9, 0.7, 1.0),
+        Color::new(1.0, 1.0, 0.0, 1.0), // Yellow retro style
     );
     
     // Create a temporary piece for preview
@@ -696,32 +696,32 @@ fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
     let hold_x = HOLD_OFFSET_X;
     let hold_y = HOLD_OFFSET_Y;
     
-    // Draw hold panel background
-    let bg_alpha = if can_hold { 0.6 } else { 0.3 }; // Dimmed when can't hold
+    // Draw hold panel background - retro style
+    let bg_alpha = if can_hold { 0.8 } else { 0.4 }; // Dimmed when can't hold
     draw_rectangle(
         hold_x - 10.0,
         hold_y - 30.0,
         HOLD_SIZE + 20.0,
         HOLD_SIZE + 40.0,
-        Color::new(0.0, 0.0, 0.0, bg_alpha),
+        Color::new(0.0, 0.0, 0.2, bg_alpha), // Dark blue retro background
     );
     
-    // Draw hold panel border
-    let border_alpha = if can_hold { 1.0 } else { 0.5 };
+    // Draw hold panel border - retro cyan
+    let border_alpha = if can_hold { 0.8 } else { 0.4 };
     draw_rectangle_lines(
         hold_x - 10.0,
         hold_y - 30.0,
         HOLD_SIZE + 20.0,
         HOLD_SIZE + 40.0,
         2.0,
-        Color::new(UI_BORDER.r, UI_BORDER.g, UI_BORDER.b, border_alpha),
+        Color::new(0.0, 1.0, 1.0, border_alpha), // Cyan border
     );
     
-    // Draw "HOLD" label with visual feedback
+    // Draw "HOLD" label with retro styling
     let label_color = if can_hold {
-        Color::new(1.0, 0.9, 0.7, 1.0)
+        Color::new(1.0, 1.0, 0.0, 1.0) // Yellow retro style
     } else {
-        Color::new(0.6, 0.6, 0.6, 1.0) // Grayed out when can't hold
+        Color::new(0.6, 0.6, 0.0, 0.6) // Dimmed yellow when can't hold
     };
     
     draw_text(
@@ -945,110 +945,202 @@ fn detect_and_play_audio_events(
     }
 }
 
-/// Draw enhanced UI elements
+/// Draw retro-styled TETRIS logo with block letters
+fn draw_retro_tetris_logo() {
+    let logo_y = 25.0;
+    let block_size = 6.0;
+    let letter_width = block_size * 4.0;
+    let letter_spacing = block_size * 1.5;
+    
+    // Calculate center position for the entire logo
+    let total_width = letter_width * 6.0 + letter_spacing * 5.0; // 6 letters + 5 spaces
+    let start_x = (WINDOW_WIDTH as f32 - total_width) / 2.0;
+    
+    let letters = [
+        // T
+        [
+            [1,1,1,1],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0]
+        ],
+        // E  
+        [
+            [1,1,1,1],
+            [1,0,0,0],
+            [1,1,1,0],
+            [1,0,0,0],
+            [1,1,1,1]
+        ],
+        // T
+        [
+            [1,1,1,1],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0]
+        ],
+        // R
+        [
+            [1,1,1,0],
+            [1,0,0,1],
+            [1,1,1,0],
+            [1,0,1,0],
+            [1,0,0,1]
+        ],
+        // I
+        [
+            [1,1,1,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [1,1,1,0]
+        ],
+        // S
+        [
+            [0,1,1,1],
+            [1,0,0,0],
+            [0,1,1,0],
+            [0,0,0,1],
+            [1,1,1,0]
+        ]
+    ];
+    
+    // Draw each letter
+    for (letter_idx, letter) in letters.iter().enumerate() {
+        let letter_x = start_x + (letter_idx as f32 * (letter_width + letter_spacing));
+        
+        // Draw letter blocks with retro colors
+        for (row, line) in letter.iter().enumerate() {
+            for (col, &block) in line.iter().enumerate() {
+                if block == 1 {
+                    let x = letter_x + (col as f32 * block_size);
+                    let y = logo_y + (row as f32 * block_size);
+                    
+                    // Create rainbow effect across letters
+                    let hue = (letter_idx as f64 + col as f64 * 0.2) / 6.0 * 6.0; // Full rainbow across 6 letters
+                    let letter_color = hsv_to_rgb(hue, 0.9, 1.0);
+                    
+                    // Draw main block
+                    draw_rectangle(
+                        x,
+                        y,
+                        block_size,
+                        block_size,
+                        letter_color,
+                    );
+                    
+                    // Draw glow effect
+                    draw_rectangle(
+                        x - 1.0,
+                        y - 1.0,
+                        block_size + 2.0,
+                        block_size + 2.0,
+                        Color::new(letter_color.r, letter_color.g, letter_color.b, 0.3),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Draw enhanced UI elements with retro theme
 fn draw_enhanced_ui(game: &Game) {
-    // Draw title with shadow effect
-    let title = "RUST TETRIS";
-    let title_x = (WINDOW_WIDTH as f32 - measure_text(title, None, TITLE_TEXT_SIZE as u16, 1.0).width) / 2.0;
+    // Draw retro TETRIS title logo
+    draw_retro_tetris_logo();
     
-    // Title shadow
-    draw_text(
-        title,
-        title_x + 2.0,
-        42.0,
-        TITLE_TEXT_SIZE,
-        Color::new(0.0, 0.0, 0.0, 0.8),
-    );
-    
-    // Main title
-    draw_text(
-        title,
-        title_x,
-        40.0,
-        TITLE_TEXT_SIZE,
-        Color::new(1.0, 0.9, 0.7, 1.0),
-    );
-    
-    // Subtitle
-    let subtitle = "Phase 1 - Foundation";
-    let subtitle_x = (WINDOW_WIDTH as f32 - measure_text(subtitle, None, TEXT_SIZE as u16, 1.0).width) / 2.0;
+    // Draw retro subtitle
+    let subtitle = "CLASSIC ARCADE EDITION";
+    let subtitle_x = (WINDOW_WIDTH as f32 - measure_text(subtitle, None, (TEXT_SIZE * 0.8) as u16, 1.0).width) / 2.0;
     
     draw_text(
         subtitle,
         subtitle_x,
-        65.0,
-        TEXT_SIZE,
-        Color::new(0.8, 0.8, 0.9, 0.8),
+        75.0,
+        TEXT_SIZE * 0.8,
+        Color::new(0.0, 1.0, 1.0, 0.9), // Cyan retro color
     );
     
-    // Instructions with background
+    // Instructions with background - compact retro style
     let instructions = vec![
-        "Controls:",
-        "← → / A D - Move (hold)",
-        "↓ S - Soft Drop (hold)",
-        "↑ X W - Rotate CW",
-        "Z - Rotate CCW",
-        "Space - Hard Drop",
-        "B - Smart Ghost Block (4 lines)",
-        "M/N - Next/Prev best spot",
+        "CONTROLS:",
+        "← → A D - Move",
+        "↓ S - Soft Drop",
+        "↑ X W / Z - Rotate",
+        "SPACE - Hard Drop",
         "C - Hold Piece",
-        "Ghost shows landing spot",
-        "P - Pause, R - Reset",
+        "P - Pause / R - Reset",
     ];
     
-    let inst_x = 20.0;
-    let mut inst_y = WINDOW_HEIGHT as f32 - 120.0;
+    let inst_x = 25.0; // Moderate padding from left edge
+    let instruction_height = (instructions.len() as f32 * 18.0) + 35.0; // Moderate internal padding
+    let mut inst_y = WINDOW_HEIGHT as f32 - instruction_height - 15.0; // Moderate padding from bottom
     
-    // Instructions background
+    // Calculate safe width that won't overlap with board
+    let max_safe_width = BOARD_OFFSET_X - inst_x - 10.0; // Leave 10px gap from board
+    let panel_width = max_safe_width.min(260.0); // Cap at reasonable width
+    
+    // Instructions background with retro border
     draw_rectangle(
-        inst_x - 10.0,
-        inst_y - 25.0,
-        280.0,
-        120.0, // Increased height for hold piece instruction
-        Color::new(0.0, 0.0, 0.0, 0.6),
+        inst_x - 12.0, // Moderate left padding
+        inst_y - 22.0, // Moderate top padding
+        panel_width,
+        instruction_height,
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
+    );
+    
+    // Retro border
+    draw_rectangle_lines(
+        inst_x - 12.0, // Match background padding
+        inst_y - 22.0, // Match background padding
+        panel_width, // Match background width
+        instruction_height,
+        2.0,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
     for (i, instruction) in instructions.iter().enumerate() {
         let color = if i == 0 {
-            Color::new(1.0, 0.9, 0.7, 1.0) // Header color
+            Color::new(1.0, 1.0, 0.0, 1.0) // Yellow header - retro style
         } else {
-            Color::new(0.9, 0.9, 0.95, 0.9) // Normal text
+            Color::new(0.0, 1.0, 0.0, 0.9) // Green text - classic terminal green
         };
         
-        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.8, color);
-        inst_y += 22.0;
+        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.75, color);
+        inst_y += 18.0; // Tighter spacing
     }
     
-    // Game statistics panel
-    let stats_x = 20.0;
-    let mut stats_y = BOARD_OFFSET_Y + BOARD_HEIGHT_PX - 200.0;
+    // Game statistics panel with retro styling - position on right side
+    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 20.0; // Right side of board
+    let mut stats_y = PREVIEW_OFFSET_Y + PREVIEW_SIZE + 60.0; // Below the Next piece panel
     
-    // Stats background
+    // Stats background - retro dark blue
     draw_rectangle(
         stats_x - 10.0,
         stats_y - 30.0,
         200.0,
-        180.0,
-        Color::new(0.0, 0.0, 0.0, 0.7),
+        160.0, // Slightly smaller height
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
     );
     
-    // Stats border
+    // Stats border - cyan retro style
     draw_rectangle_lines(
         stats_x - 10.0,
         stats_y - 30.0,
         200.0,
-        180.0,
+        160.0,
         2.0,
-        UI_BORDER,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
-    // Stats title
+    // Stats title - retro yellow
     draw_text(
         "GAME STATS",
         stats_x,
         stats_y - 10.0,
         TEXT_SIZE * 0.9,
-        Color::new(1.0, 0.9, 0.7, 1.0),
+        Color::new(1.0, 1.0, 0.0, 1.0), // Yellow retro header
     );
     stats_y += 15.0;
     
@@ -1068,7 +1160,7 @@ fn draw_enhanced_ui(game: &Game) {
             let pulse = (game.game_time * 3.0).sin() as f32 * 0.3 + 0.7;
             Color::new(0.8, 0.8, 1.0, pulse) // Light blue pulsing
         } else {
-            Color::new(0.9, 0.9, 0.95, 0.9) // Normal color
+            Color::new(0.0, 1.0, 0.0, 0.9) // Green terminal-style text
         };
         
         draw_text(
@@ -1092,7 +1184,7 @@ fn draw_enhanced_ui(game: &Game) {
         );
     }
     
-    // Board info label or ghost block placement mode indicator
+    // Ghost block placement mode indicator (if active)
     if game.ghost_block_placement_mode {
         // Main placement mode message
         let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
@@ -1131,24 +1223,6 @@ fn draw_enhanced_ui(game: &Game) {
                 strategy_color,
             );
         }
-        
-        let board_info = "Live Game Data";
-        draw_text(
-            board_info,
-            BOARD_OFFSET_X,
-            BOARD_OFFSET_Y - 15.0,
-            TEXT_SIZE * 0.6,
-            Color::new(0.6, 0.7, 0.8, 0.5),
-        );
-    } else {
-        let board_info = "Live Game Data";
-        draw_text(
-            board_info,
-            BOARD_OFFSET_X,
-            BOARD_OFFSET_Y - 15.0,
-            TEXT_SIZE * 0.8,
-            Color::new(0.8, 0.9, 1.0, 0.7),
-        );
     }
 }
 
