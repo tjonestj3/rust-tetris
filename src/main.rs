@@ -770,7 +770,7 @@ fn detect_and_play_audio_events(
     audio_system: &AudioSystem,
     prev_score: u32,
     prev_level: u32,
-    prev_lines_cleared: u32,
+    _prev_lines_cleared: u32,
     was_clearing_lines: bool,
     prev_state: GameState,
 ) {
