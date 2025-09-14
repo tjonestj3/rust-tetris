@@ -24,6 +24,10 @@ pub struct Game {
     pub current_piece: Option<Tetromino>,
     /// Next piece to spawn
     pub next_piece: TetrominoType,
+    /// Held piece (can be swapped with current piece)
+    pub held_piece: Option<TetrominoType>,
+    /// Whether hold has been used for the current piece (prevents infinite swapping)
+    pub hold_used_this_piece: bool,
     /// Current score
     pub score: u32,
     /// Time accumulator for piece dropping
@@ -42,6 +46,7 @@ pub struct Game {
     pub left_move_timer: f64,
     /// Right movement input timer
     pub right_move_timer: f64,
+
     /// Ghost blocks available for placement
     pub ghost_blocks_available: u32,
     /// Ghost block placement mode active
@@ -54,6 +59,15 @@ pub struct Game {
     pub ghost_smart_positions: Vec<(i32, i32, u32)>, // (x, y, blocks_needed_to_complete_line)
     /// Current index in smart positions list
     pub ghost_cursor_index: usize,
+
+    /// Flag to track when a piece was just locked (for audio feedback)
+    pub piece_just_locked: bool,
+    /// Lock delay timer - tracks how long piece has been unable to move down
+    pub lock_delay_timer: f64,
+    /// Whether the current piece is in the "locking" state (can't move down)
+    pub piece_is_locking: bool,
+    /// Number of times lock delay has been reset for current piece
+    pub lock_resets: u32,
 }
 
 impl Game {
@@ -64,6 +78,8 @@ impl Game {
             board: Board::new(),
             current_piece: None,
             next_piece: TetrominoType::random(),
+            held_piece: None,
+            hold_used_this_piece: false,
             score: 0,
             drop_timer: 0.0,
             drop_interval: INITIAL_DROP_TIME,
@@ -73,12 +89,18 @@ impl Game {
             soft_drop_timer: 0.0,
             left_move_timer: 0.0,
             right_move_timer: 0.0,
+
             ghost_blocks_available: 0,
             ghost_block_placement_mode: false,
             ghost_block_cursor: (BOARD_WIDTH as i32 / 2, (BUFFER_HEIGHT + VISIBLE_HEIGHT / 2) as i32),
             ghost_block_blink_timer: 0.0,
             ghost_smart_positions: Vec::new(),
             ghost_cursor_index: 0,
+
+            piece_just_locked: false,
+            lock_delay_timer: 0.0,
+            piece_is_locking: false,
+            lock_resets: 0,
         };
         
         // Spawn the first piece
@@ -92,6 +114,9 @@ impl Game {
         if self.state != GameState::Playing {
             return;
         }
+        
+        // Reset piece locked flag at the start of each update cycle
+        self.piece_just_locked = false;
         
         self.game_time += delta_time;
         
@@ -109,6 +134,16 @@ impl Game {
         self.left_move_timer += delta_time;
         self.right_move_timer += delta_time;
         self.ghost_block_blink_timer += delta_time;
+        
+        // Update lock delay timer if piece is in locking state
+        if self.piece_is_locking {
+            self.lock_delay_timer += delta_time;
+            // Check if lock delay time has expired
+            if self.lock_delay_timer >= LOCK_DELAY {
+                self.lock_current_piece();
+                return; // Don't continue with other logic after locking
+            }
+        }
         
         // Check if it's time to drop the current piece
         if self.drop_timer >= self.drop_interval {
@@ -128,12 +163,17 @@ impl Game {
             piece.move_by(0, 1);
             
             if self.is_piece_valid(&piece) {
-                // Successfully moved down
+                // Successfully moved down - reset lock delay state
                 self.current_piece = Some(piece);
+                self.piece_is_locking = false;
+                self.lock_delay_timer = 0.0;
                 return true;
             } else {
-                // Can't move down, lock the piece
-                self.lock_current_piece();
+                // Can't move down - start lock delay if not already started
+                if !self.piece_is_locking {
+                    self.piece_is_locking = true;
+                    self.lock_delay_timer = 0.0;
+                }
                 return false;
             }
         }
@@ -153,6 +193,14 @@ impl Game {
     /// Lock the current piece to the board and spawn a new one
     pub fn lock_current_piece(&mut self) {
         if let Some(piece) = self.current_piece.take() {
+            // Set flag to indicate a piece was just locked (for audio feedback)
+            self.piece_just_locked = true;
+            
+            // Reset lock delay state
+            self.piece_is_locking = false;
+            self.lock_delay_timer = 0.0;
+            self.lock_resets = 0;
+            
             // Place the piece on the board
             for (x, y) in piece.absolute_blocks() {
                 if x >= 0 && y >= 0 {
@@ -182,6 +230,14 @@ impl Game {
     pub fn spawn_next_piece(&mut self) {
         let new_piece = Tetromino::new(self.next_piece);
         self.next_piece = TetrominoType::random();
+        
+        // Reset hold usage for the new piece
+        self.hold_used_this_piece = false;
+        
+        // Reset lock delay state for new piece
+        self.piece_is_locking = false;
+        self.lock_delay_timer = 0.0;
+        self.lock_resets = 0;
         
         // Check if the new piece can be placed
         if self.is_piece_valid(&new_piece) {
@@ -213,6 +269,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful horizontal movement
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -226,6 +284,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful rotation
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -239,6 +299,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful rotation
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -395,6 +457,80 @@ impl Game {
             0.0
         } else {
             (self.clear_animation_timer / LINE_CLEAR_ANIMATION_TIME).min(1.0)
+        }
+    }
+    
+    /// Hold the current piece (swap with held piece)
+    /// Can only be used once per piece to prevent infinite swapping
+    pub fn hold_piece(&mut self) -> bool {
+        // Can't hold if already used for this piece
+        if self.hold_used_this_piece {
+            return false;
+        }
+        
+        // Can't hold if no current piece
+        if self.current_piece.is_none() {
+            return false;
+        }
+        
+        // Mark hold as used for this "piece cycle"
+        self.hold_used_this_piece = true;
+        
+        if let Some(current) = self.current_piece.take() {
+            match self.held_piece {
+                Some(held_type) => {
+                    // Swap current piece with held piece
+                    self.held_piece = Some(current.piece_type);
+                    let new_piece = Tetromino::new(held_type);
+                    
+                    // Check if the swapped piece can be placed
+                    if self.is_piece_valid(&new_piece) {
+                        self.current_piece = Some(new_piece);
+                        // Reset lock delay for held piece
+                        self.reset_lock_delay();
+                    } else {
+                        // Can't place swapped piece - game over
+                        self.held_piece = Some(current.piece_type); // Keep the piece in hold
+                        self.state = GameState::GameOver;
+                        return false;
+                    }
+                }
+                None => {
+                    // First time holding - store current piece and spawn next
+                    self.held_piece = Some(current.piece_type);
+                    // Don't reset hold_used_this_piece when manually spawning in hold context
+                    let new_piece = Tetromino::new(self.next_piece);
+                    self.next_piece = TetrominoType::random();
+                    
+                    // Check if the new piece can be placed
+                    if self.is_piece_valid(&new_piece) {
+                        self.current_piece = Some(new_piece);
+                        // Reset lock delay for new piece from hold
+                        self.reset_lock_delay();
+                    } else {
+                        // Game over - can't spawn new piece
+                        self.state = GameState::GameOver;
+                        return false;
+                    }
+                }
+            }
+        }
+        
+        true
+    }
+    
+    /// Check if hold is available for the current piece
+    pub fn can_hold(&self) -> bool {
+        !self.hold_used_this_piece && self.current_piece.is_some()
+    }
+    
+    /// Reset the lock delay timer and state (if reset limit hasn't been reached)
+    fn reset_lock_delay(&mut self) {
+        // Only reset if we haven't exceeded the maximum number of resets
+        if self.lock_resets < MAX_LOCK_RESETS {
+            self.piece_is_locking = false;
+            self.lock_delay_timer = 0.0;
+            self.lock_resets += 1;
         }
     }
     
@@ -599,5 +735,80 @@ impl Game {
 impl Default for Game {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_hold_piece_basic_functionality() {
+        let mut game = Game::new();
+        let original_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Initially should be able to hold
+        assert!(game.can_hold());
+        assert!(game.held_piece.is_none());
+        
+        // Hold the current piece
+        assert!(game.hold_piece());
+        
+        // Should now have a held piece and new current piece
+        assert!(game.held_piece.is_some());
+        assert_eq!(game.held_piece.unwrap(), original_piece_type);
+        assert!(game.current_piece.is_some());
+        
+        // Should not be able to hold again for the same piece
+        assert!(!game.can_hold());
+        assert!(!game.hold_piece());
+    }
+    
+    #[test]
+    fn test_hold_piece_swap_functionality() {
+        let mut game = Game::new();
+        let first_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Hold the first piece
+        assert!(game.hold_piece());
+        let _second_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Spawn next piece to reset hold availability
+        game.spawn_next_piece();
+        
+        // Now hold again - should swap
+        let third_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        assert!(game.can_hold());
+        assert!(game.hold_piece());
+        
+        // The current piece should now be the first piece we held
+        assert_eq!(game.current_piece.as_ref().unwrap().piece_type, first_piece_type);
+        // The held piece should be the piece we just swapped out
+        assert_eq!(game.held_piece.unwrap(), third_piece_type);
+    }
+    
+    #[test]
+    fn test_hold_availability_reset_on_spawn() {
+        let mut game = Game::new();
+        
+        // Hold a piece
+        assert!(game.hold_piece());
+        assert!(!game.can_hold());
+        
+        // Spawn next piece should reset hold availability
+        game.spawn_next_piece();
+        assert!(game.can_hold());
+    }
+    
+    #[test]
+    fn test_cannot_hold_without_current_piece() {
+        let mut game = Game::new();
+        
+        // Remove current piece
+        game.current_piece = None;
+        
+        // Should not be able to hold
+        assert!(!game.can_hold());
+        assert!(!game.hold_piece());
     }
 }
