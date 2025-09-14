@@ -24,6 +24,10 @@ pub struct Game {
     pub current_piece: Option<Tetromino>,
     /// Next piece to spawn
     pub next_piece: TetrominoType,
+    /// Held piece (can be swapped with current piece)
+    pub held_piece: Option<TetrominoType>,
+    /// Whether hold has been used for the current piece (prevents infinite swapping)
+    pub hold_used_this_piece: bool,
     /// Current score
     pub score: u32,
     /// Time accumulator for piece dropping
@@ -52,6 +56,8 @@ impl Game {
             board: Board::new(),
             current_piece: None,
             next_piece: TetrominoType::random(),
+            held_piece: None,
+            hold_used_this_piece: false,
             score: 0,
             drop_timer: 0.0,
             drop_interval: INITIAL_DROP_TIME,
@@ -163,6 +169,9 @@ impl Game {
     pub fn spawn_next_piece(&mut self) {
         let new_piece = Tetromino::new(self.next_piece);
         self.next_piece = TetrominoType::random();
+        
+        // Reset hold usage for the new piece
+        self.hold_used_this_piece = false;
         
         // Check if the new piece can be placed
         if self.is_piece_valid(&new_piece) {
@@ -347,6 +356,66 @@ impl Game {
         }
     }
     
+    /// Hold the current piece (swap with held piece)
+    /// Can only be used once per piece to prevent infinite swapping
+    pub fn hold_piece(&mut self) -> bool {
+        // Can't hold if already used for this piece
+        if self.hold_used_this_piece {
+            return false;
+        }
+        
+        // Can't hold if no current piece
+        if self.current_piece.is_none() {
+            return false;
+        }
+        
+        // Mark hold as used for this "piece cycle"
+        self.hold_used_this_piece = true;
+        
+        if let Some(current) = self.current_piece.take() {
+            match self.held_piece {
+                Some(held_type) => {
+                    // Swap current piece with held piece
+                    self.held_piece = Some(current.piece_type);
+                    let new_piece = Tetromino::new(held_type);
+                    
+                    // Check if the swapped piece can be placed
+                    if self.is_piece_valid(&new_piece) {
+                        self.current_piece = Some(new_piece);
+                    } else {
+                        // Can't place swapped piece - game over
+                        self.held_piece = Some(current.piece_type); // Keep the piece in hold
+                        self.state = GameState::GameOver;
+                        return false;
+                    }
+                }
+                None => {
+                    // First time holding - store current piece and spawn next
+                    self.held_piece = Some(current.piece_type);
+                    // Don't reset hold_used_this_piece when manually spawning in hold context
+                    let new_piece = Tetromino::new(self.next_piece);
+                    self.next_piece = TetrominoType::random();
+                    
+                    // Check if the new piece can be placed
+                    if self.is_piece_valid(&new_piece) {
+                        self.current_piece = Some(new_piece);
+                    } else {
+                        // Game over - can't spawn new piece
+                        self.state = GameState::GameOver;
+                        return false;
+                    }
+                }
+            }
+        }
+        
+        true
+    }
+    
+    /// Check if hold is available for the current piece
+    pub fn can_hold(&self) -> bool {
+        !self.hold_used_this_piece && self.current_piece.is_some()
+    }
+    
     /// Calculate where the current piece will land (ghost piece position)
     pub fn calculate_ghost_piece(&self) -> Option<Tetromino> {
         if let Some(mut ghost_piece) = self.current_piece.clone() {
@@ -374,5 +443,80 @@ impl Game {
 impl Default for Game {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_hold_piece_basic_functionality() {
+        let mut game = Game::new();
+        let original_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Initially should be able to hold
+        assert!(game.can_hold());
+        assert!(game.held_piece.is_none());
+        
+        // Hold the current piece
+        assert!(game.hold_piece());
+        
+        // Should now have a held piece and new current piece
+        assert!(game.held_piece.is_some());
+        assert_eq!(game.held_piece.unwrap(), original_piece_type);
+        assert!(game.current_piece.is_some());
+        
+        // Should not be able to hold again for the same piece
+        assert!(!game.can_hold());
+        assert!(!game.hold_piece());
+    }
+    
+    #[test]
+    fn test_hold_piece_swap_functionality() {
+        let mut game = Game::new();
+        let first_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Hold the first piece
+        assert!(game.hold_piece());
+        let _second_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        
+        // Spawn next piece to reset hold availability
+        game.spawn_next_piece();
+        
+        // Now hold again - should swap
+        let third_piece_type = game.current_piece.as_ref().unwrap().piece_type;
+        assert!(game.can_hold());
+        assert!(game.hold_piece());
+        
+        // The current piece should now be the first piece we held
+        assert_eq!(game.current_piece.as_ref().unwrap().piece_type, first_piece_type);
+        // The held piece should be the piece we just swapped out
+        assert_eq!(game.held_piece.unwrap(), third_piece_type);
+    }
+    
+    #[test]
+    fn test_hold_availability_reset_on_spawn() {
+        let mut game = Game::new();
+        
+        // Hold a piece
+        assert!(game.hold_piece());
+        assert!(!game.can_hold());
+        
+        // Spawn next piece should reset hold availability
+        game.spawn_next_piece();
+        assert!(game.can_hold());
+    }
+    
+    #[test]
+    fn test_cannot_hold_without_current_piece() {
+        let mut game = Game::new();
+        
+        // Remove current piece
+        game.current_piece = None;
+        
+        // Should not be able to hold
+        assert!(!game.can_hold());
+        assert!(!game.hold_piece());
     }
 }

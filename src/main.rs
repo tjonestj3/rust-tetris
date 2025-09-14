@@ -103,6 +103,9 @@ async fn main() {
         // Draw next piece preview
         draw_next_piece_preview(&game.next_piece);
         
+        // Draw hold piece
+        draw_hold_piece(&game.held_piece, game.can_hold());
+        
         // Draw title with enhanced styling
         draw_enhanced_ui(&game);
 
@@ -196,6 +199,11 @@ fn handle_input(game: &mut Game) {
     // Hard drop (Space)
     if is_key_pressed(KeyCode::Space) {
         game.hard_drop();
+    }
+    
+    // Hold piece (C key)
+    if is_key_pressed(KeyCode::C) {
+        game.hold_piece();
     }
     
     // Pause
@@ -498,6 +506,118 @@ fn draw_next_piece_preview(next_piece_type: &TetrominoType) {
     }
 }
 
+/// Draw the hold piece preview
+fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
+    let hold_x = HOLD_OFFSET_X;
+    let hold_y = HOLD_OFFSET_Y;
+    
+    // Draw hold panel background
+    let bg_alpha = if can_hold { 0.6 } else { 0.3 }; // Dimmed when can't hold
+    draw_rectangle(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        Color::new(0.0, 0.0, 0.0, bg_alpha),
+    );
+    
+    // Draw hold panel border
+    let border_alpha = if can_hold { 1.0 } else { 0.5 };
+    draw_rectangle_lines(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        2.0,
+        Color::new(UI_BORDER.r, UI_BORDER.g, UI_BORDER.b, border_alpha),
+    );
+    
+    // Draw "HOLD" label with visual feedback
+    let label_color = if can_hold {
+        Color::new(1.0, 0.9, 0.7, 1.0)
+    } else {
+        Color::new(0.6, 0.6, 0.6, 1.0) // Grayed out when can't hold
+    };
+    
+    draw_text(
+        "HOLD",
+        hold_x,
+        hold_y - 10.0,
+        TEXT_SIZE,
+        label_color,
+    );
+    
+    // Draw the held piece if there is one
+    if let Some(piece_type) = held_piece {
+        // Create a temporary piece for preview
+        let hold_piece = Tetromino::new(*piece_type);
+        let blocks = hold_piece.blocks;
+        
+        // Center the piece in the hold area
+        let center_x = hold_x + HOLD_SIZE / 2.0;
+        let center_y = hold_y + HOLD_SIZE / 2.0;
+        
+        // Draw the piece blocks
+        let piece_alpha = if can_hold { 1.0 } else { 0.5 };
+        for (dx, dy) in blocks {
+            let block_x = center_x + (dx as f32 * CELL_SIZE * 0.7); // Smaller size for hold
+            let block_y = center_y + (dy as f32 * CELL_SIZE * 0.7);
+            let block_size = CELL_SIZE * 0.7;
+            
+            // Get piece color and apply alpha based on hold availability
+            let base_color = piece_type.color();
+            let final_color = Color::new(
+                base_color.r,
+                base_color.g,
+                base_color.b,
+                piece_alpha,
+            );
+            
+            // Draw filled cell
+            draw_rectangle(
+                block_x,
+                block_y,
+                block_size - 1.0,
+                block_size - 1.0,
+                final_color,
+            );
+            
+            // Draw highlight (only if can hold)
+            if can_hold {
+                draw_rectangle(
+                    block_x + 1.0,
+                    block_y + 1.0,
+                    block_size - 3.0,
+                    4.0,
+                    Color::new(1.0, 1.0, 1.0, 0.3),
+                );
+            }
+        }
+    } else {
+        // Show "C" key hint when no piece is held
+        let hint_color = if can_hold {
+            Color::new(0.8, 0.8, 0.9, 0.7)
+        } else {
+            Color::new(0.5, 0.5, 0.5, 0.5)
+        };
+        
+        draw_text(
+            "Press C",
+            hold_x + 5.0,
+            hold_y + HOLD_SIZE / 2.0 - 5.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+        draw_text(
+            "to hold",
+            hold_x + 8.0,
+            hold_y + HOLD_SIZE / 2.0 + 15.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+    }
+}
+
 
 /// Draw enhanced Tetris board with modern styling and real data
 fn draw_enhanced_board_with_data(board: &Board) {
@@ -653,6 +773,7 @@ fn draw_enhanced_ui(game: &Game) {
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
+        "C - Hold Piece",
         "Ghost shows landing spot",
         "P - Pause, R - Reset",
     ];
@@ -665,7 +786,7 @@ fn draw_enhanced_ui(game: &Game) {
         inst_x - 10.0,
         inst_y - 25.0,
         280.0,
-        100.0,
+        120.0, // Increased height for hold piece instruction
         Color::new(0.0, 0.0, 0.0, 0.6),
     );
     
