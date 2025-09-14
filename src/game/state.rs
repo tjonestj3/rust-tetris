@@ -50,6 +50,10 @@ pub struct Game {
     pub ghost_block_cursor: (i32, i32),
     /// Ghost block blink timer for animation
     pub ghost_block_blink_timer: f64,
+    /// Smart positions sorted by strategic value (best first)
+    pub ghost_smart_positions: Vec<(i32, i32, u32)>, // (x, y, blocks_needed_to_complete_line)
+    /// Current index in smart positions list
+    pub ghost_cursor_index: usize,
 }
 
 impl Game {
@@ -71,8 +75,10 @@ impl Game {
             right_move_timer: 0.0,
             ghost_blocks_available: 0,
             ghost_block_placement_mode: false,
-            ghost_block_cursor: (BOARD_WIDTH as i32 / 2, BOARD_HEIGHT as i32 / 2),
+            ghost_block_cursor: (BOARD_WIDTH as i32 / 2, (BUFFER_HEIGHT + VISIBLE_HEIGHT / 2) as i32),
             ghost_block_blink_timer: 0.0,
+            ghost_smart_positions: Vec::new(),
+            ghost_cursor_index: 0,
         };
         
         // Spawn the first piece
@@ -420,23 +426,70 @@ impl Game {
         if self.ghost_blocks_available > 0 {
             self.ghost_block_placement_mode = !self.ghost_block_placement_mode;
             if self.ghost_block_placement_mode {
-                // Reset cursor to center of visible board
-                self.ghost_block_cursor = (BOARD_WIDTH as i32 / 2, (BUFFER_HEIGHT + VISIBLE_HEIGHT / 2) as i32);
+                // Analyze board and find smart positions
+                self.analyze_smart_positions();
                 self.ghost_block_blink_timer = 0.0;
-                log::info!("Ghost block placement mode activated");
+                log::info!("Ghost block placement mode activated with smart positioning");
             } else {
                 log::info!("Ghost block placement mode deactivated");
+                self.ghost_smart_positions.clear();
+                self.ghost_cursor_index = 0;
             }
         }
     }
     
-    /// Move ghost block cursor
+    /// Move to next smart position
+    pub fn next_smart_position(&mut self) {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            self.ghost_cursor_index = (self.ghost_cursor_index + 1) % self.ghost_smart_positions.len();
+            let (x, y, _) = self.ghost_smart_positions[self.ghost_cursor_index];
+            self.ghost_block_cursor = (x, y);
+            log::debug!("Next smart position: ({}, {}) - index {}", x, y, self.ghost_cursor_index);
+        }
+    }
+    
+    /// Move to previous smart position
+    pub fn previous_smart_position(&mut self) {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            self.ghost_cursor_index = if self.ghost_cursor_index == 0 {
+                self.ghost_smart_positions.len() - 1
+            } else {
+                self.ghost_cursor_index - 1
+            };
+            let (x, y, _) = self.ghost_smart_positions[self.ghost_cursor_index];
+            self.ghost_block_cursor = (x, y);
+            log::debug!("Previous smart position: ({}, {}) - index {}", x, y, self.ghost_cursor_index);
+        }
+    }
+    
+    /// Move ghost block cursor manually (for arrow keys)
     pub fn move_ghost_block_cursor(&mut self, dx: i32, dy: i32) {
         if self.ghost_block_placement_mode {
             let new_x = (self.ghost_block_cursor.0 + dx).max(0).min(BOARD_WIDTH as i32 - 1);
             let new_y = (self.ghost_block_cursor.1 + dy).max(BUFFER_HEIGHT as i32).min((BOARD_HEIGHT + BUFFER_HEIGHT - 1) as i32);
             self.ghost_block_cursor = (new_x, new_y);
+            
+            // When manually moving, find the closest smart position and update index
+            self.update_cursor_index_for_position(new_x, new_y);
         }
+    }
+    
+    /// Update cursor index to match the current position (for manual movement)
+    fn update_cursor_index_for_position(&mut self, x: i32, y: i32) {
+        if let Some(index) = self.ghost_smart_positions.iter().position(|(px, py, _)| *px == x && *py == y) {
+            self.ghost_cursor_index = index;
+        }
+        // If position is not in smart positions, keep current index
+    }
+    
+    /// Get strategic info for current cursor position
+    pub fn get_current_position_info(&self) -> Option<(usize, usize, u32)> {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            if let Some(&(_, _, blocks_needed)) = self.ghost_smart_positions.get(self.ghost_cursor_index) {
+                return Some((self.ghost_cursor_index + 1, self.ghost_smart_positions.len(), blocks_needed));
+            }
+        }
+        None
     }
     
     /// Place a ghost block at the current cursor position
@@ -473,6 +526,77 @@ impl Game {
         }
         // Blink every 0.5 seconds
         (self.ghost_block_blink_timer % 1.0) < 0.5
+    }
+    
+    /// Analyze board and find smart positions for ghost block placement
+    pub fn analyze_smart_positions(&mut self) {
+        let mut positions = Vec::new();
+        
+        // Check each empty position on the board
+        for y in BUFFER_HEIGHT..(BOARD_HEIGHT + BUFFER_HEIGHT) {
+            for x in 0..BOARD_WIDTH {
+                let x_i32 = x as i32;
+                let y_i32 = y as i32;
+                
+                // Only consider empty positions
+                if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
+                    if cell.is_empty() {
+                        // Calculate how many blocks are needed to complete this line
+                        let blocks_needed = self.calculate_blocks_needed_for_line(y);
+                        if blocks_needed > 0 {
+                            positions.push((x_i32, y_i32, blocks_needed));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Sort positions by strategic value:
+        // 1. Fewer blocks needed to complete line (better)
+        // 2. Lower row number (closer to bottom, better)
+        // 3. Closer to center horizontally (better)
+        positions.sort_by(|a, b| {
+            // Primary: blocks needed (ascending - fewer is better)
+            match a.2.cmp(&b.2) {
+                std::cmp::Ordering::Equal => {
+                    // Secondary: row position (descending - lower rows first)
+                    match b.1.cmp(&a.1) {
+                        std::cmp::Ordering::Equal => {
+                            // Tertiary: distance from center (ascending - closer to center is better)
+                            let center = BOARD_WIDTH as i32 / 2;
+                            let dist_a = (a.0 - center).abs();
+                            let dist_b = (b.0 - center).abs();
+                            dist_a.cmp(&dist_b)
+                        }
+                        other => other,
+                    }
+                }
+                other => other,
+            }
+        });
+        
+        self.ghost_smart_positions = positions;
+        self.ghost_cursor_index = 0;
+        
+        // Set initial cursor position to the best position (if any)
+        if let Some(&(x, y, _)) = self.ghost_smart_positions.first() {
+            self.ghost_block_cursor = (x, y);
+        }
+        
+        log::info!("Found {} smart positions for ghost block placement", self.ghost_smart_positions.len());
+    }
+    
+    /// Calculate how many blocks are needed to complete a specific line
+    fn calculate_blocks_needed_for_line(&self, line_y: usize) -> u32 {
+        let mut empty_count = 0;
+        for x in 0..BOARD_WIDTH {
+            if let Some(cell) = self.board.get_cell(x as i32, line_y as i32) {
+                if cell.is_empty() {
+                    empty_count += 1;
+                }
+            }
+        }
+        empty_count
     }
 }
 

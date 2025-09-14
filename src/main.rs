@@ -193,19 +193,25 @@ fn handle_input(game: &mut Game) {
     // Ghost block cursor movement (only when in placement mode)
     if game.ghost_block_placement_mode {
         if is_key_pressed(KeyCode::M) {
-            // M for next position (right)
-            game.move_ghost_block_cursor(1, 0);
+            // M for next smart position
+            game.next_smart_position();
         }
         if is_key_pressed(KeyCode::N) {
-            // N for previous position (left)
-            game.move_ghost_block_cursor(-1, 0);
+            // N for previous smart position
+            game.previous_smart_position();
         }
-        // Also allow arrow keys for up/down movement
+        // Also allow arrow keys for manual fine-tuning
         if is_key_pressed(KeyCode::Up) {
             game.move_ghost_block_cursor(0, -1);
         }
         if is_key_pressed(KeyCode::Down) {
             game.move_ghost_block_cursor(0, 1);
+        }
+        if is_key_pressed(KeyCode::Left) {
+            game.move_ghost_block_cursor(-1, 0);
+        }
+        if is_key_pressed(KeyCode::Right) {
+            game.move_ghost_block_cursor(1, 0);
         }
         return; // Skip normal game controls when in placement mode
     }
@@ -334,8 +340,19 @@ fn draw_ghost_block_cursor(game: &Game) {
         let cell_x = BOARD_OFFSET_X + (cursor_x as f32 * CELL_SIZE);
         let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
         
-        // Draw blinking ghost block cursor with special effects
-        let ghost_color = Color::new(0.8, 0.8, 1.0, 0.8); // Light blue with transparency
+        // Get strategic value for color coding
+        let (ghost_color, priority_text) = if let Some((_, _, blocks_needed)) = game.get_current_position_info() {
+            let color = match blocks_needed {
+                1 => Color::new(0.2, 1.0, 0.2, 0.8), // Bright green - excellent!
+                2 => Color::new(0.6, 1.0, 0.2, 0.8), // Yellow-green - very good  
+                3 => Color::new(1.0, 0.8, 0.2, 0.8), // Yellow - good
+                4 => Color::new(1.0, 0.6, 0.2, 0.8), // Orange - okay
+                _ => Color::new(1.0, 0.4, 0.4, 0.8), // Red - not ideal
+            };
+            (color, blocks_needed.to_string())
+        } else {
+            (Color::new(0.8, 0.8, 1.0, 0.8), "?".to_string())
+        };
         
         // Draw pulsing outline
         let pulse = (game.ghost_block_blink_timer * 4.0).sin() as f32 * 0.3 + 0.7;
@@ -376,6 +393,26 @@ fn draw_ghost_block_cursor(game: &Game) {
         // Bottom-right corner
         draw_rectangle(cell_x + CELL_SIZE - corner_size, cell_y + CELL_SIZE - 2.0, corner_size, 2.0, corner_color);
         draw_rectangle(cell_x + CELL_SIZE - 2.0, cell_y + CELL_SIZE - corner_size, 2.0, corner_size, corner_color);
+        
+        // Draw priority number in center of cursor
+        let text_x = cell_x + CELL_SIZE / 2.0 - 8.0; // Rough centering
+        let text_y = cell_y + CELL_SIZE / 2.0 + 4.0;
+        draw_text(
+            &priority_text,
+            text_x,
+            text_y,
+            20.0,
+            Color::new(1.0, 1.0, 1.0, pulse * 1.2),
+        );
+        
+        // Draw text shadow for better visibility
+        draw_text(
+            &priority_text,
+            text_x + 1.0,
+            text_y + 1.0,
+            20.0,
+            Color::new(0.0, 0.0, 0.0, pulse * 0.8),
+        );
     }
 }
 
@@ -744,8 +781,8 @@ fn draw_enhanced_ui(game: &Game) {
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
-        "B - Use Ghost Block (4 lines)",
-        "M/N - Move cursor, B - Place",
+        "B - Smart Ghost Block (4 lines)",
+        "M/N - Next/Prev best spot",
         "P - Pause, R - Reset",
     ];
     
@@ -848,14 +885,44 @@ fn draw_enhanced_ui(game: &Game) {
     // Board info label or ghost block placement mode indicator
     if game.ghost_block_placement_mode {
         let pulse = (game.ghost_block_blink_timer * 2.0).sin() as f32 * 0.3 + 0.7;
-        let placement_info = "GHOST BLOCK PLACEMENT MODE - Use M/N/Arrows to move, B to place";
+        
+        // Main placement mode message
+        let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
         draw_text(
             placement_info,
             BOARD_OFFSET_X,
-            BOARD_OFFSET_Y - 35.0,
-            TEXT_SIZE * 0.75,
+            BOARD_OFFSET_Y - 50.0,
+            TEXT_SIZE * 0.7,
             Color::new(0.8, 0.8, 1.0, pulse),
         );
+        
+        // Strategic info about current position
+        if let Some((current_pos, total_positions, blocks_needed)) = game.get_current_position_info() {
+            let strategy_info = format!(
+                "Position {}/{} - {} block{} needed to complete line",
+                current_pos,
+                total_positions,
+                blocks_needed,
+                if blocks_needed == 1 { "" } else { "s" }
+            );
+            
+            // Color based on strategic value (fewer blocks needed = better = greener)
+            let strategy_color = match blocks_needed {
+                1 => Color::new(0.2, 1.0, 0.2, pulse),      // Bright green - excellent!
+                2 => Color::new(0.6, 1.0, 0.2, pulse),      // Yellow-green - very good
+                3 => Color::new(1.0, 0.8, 0.2, pulse),      // Yellow - good
+                4 => Color::new(1.0, 0.6, 0.2, pulse),      // Orange - okay
+                _ => Color::new(1.0, 0.4, 0.4, pulse),      // Red - not ideal
+            };
+            
+            draw_text(
+                &strategy_info,
+                BOARD_OFFSET_X,
+                BOARD_OFFSET_Y - 30.0,
+                TEXT_SIZE * 0.75,
+                strategy_color,
+            );
+        }
         
         let board_info = "Live Game Data";
         draw_text(
