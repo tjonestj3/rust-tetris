@@ -4,6 +4,7 @@ use rust_tetris::graphics::colors::*;
 use rust_tetris::board::Board;
 use rust_tetris::game::{Game, GameState};
 use rust_tetris::tetromino::{Tetromino, TetrominoType};
+use rust_tetris::audio::system::{AudioSystem, SoundType};
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -32,6 +33,15 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
+    // Initialize and load audio system
+    let mut audio_system = AudioSystem::new();
+    if let Err(e) = audio_system.load_sounds().await {
+        log::warn!("Failed to initialize audio system: {}", e);
+    }
+    
+    // Start background music
+    audio_system.start_background_music();
+    
     // Initialize game state
     let mut game = Game::new();
     let mut frame_count = 0u64;
@@ -55,10 +65,20 @@ async fn main() {
         }
 
         // Handle input
-        handle_input(&mut game);
+        handle_input(&mut game, &audio_system);
+        
+        // Store previous state for audio event detection
+        let prev_score = game.score;
+        let prev_level = game.level();
+        let prev_lines_cleared = game.lines_cleared();
+        let was_clearing_lines = game.is_clearing_lines();
+        let prev_state = game.state;
         
         // Update game logic
         game.update(delta_time as f64);
+        
+        // Detect and play audio for game events
+        detect_and_play_audio_events(&game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
 
         // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
@@ -165,8 +185,8 @@ fn create_chess_background() -> Image {
     image
 }
 
-/// Handle player input
-fn handle_input(game: &mut Game) {
+/// Handle player input with audio feedback
+fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
     // Quit game
     if is_key_pressed(KeyCode::Escape) {
         std::process::exit(0);
@@ -181,6 +201,12 @@ fn handle_input(game: &mut Game) {
     let left_held = is_key_down(KeyCode::Left) || is_key_down(KeyCode::A);
     let right_held = is_key_down(KeyCode::Right) || is_key_down(KeyCode::D);
     
+    // Play movement sound on initial press only
+    if (is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A)) ||
+       (is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D)) {
+        audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+    }
+    
     game.update_left_movement(left_held);
     game.update_right_movement(right_held);
     
@@ -190,30 +216,39 @@ fn handle_input(game: &mut Game) {
     
     // Rotation (Up/X/W for clockwise, Z for counterclockwise)
     if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::W) {
-        game.rotate_piece_clockwise();
+        if game.rotate_piece_clockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
     }
     if is_key_pressed(KeyCode::Z) {
-        game.rotate_piece_counterclockwise();
+        if game.rotate_piece_counterclockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
     }
     
     // Hard drop (Space)
     if is_key_pressed(KeyCode::Space) {
         game.hard_drop();
+        audio_system.play_sound(SoundType::HardDrop);
     }
     
     // Hold piece (C key)
     if is_key_pressed(KeyCode::C) {
-        game.hold_piece();
+        if game.hold_piece() {
+            audio_system.play_sound(SoundType::HoldPiece);
+        }
     }
     
     // Pause
     if is_key_pressed(KeyCode::P) {
         game.toggle_pause();
+        audio_system.play_sound(SoundType::Pause);
     }
     
     // Reset game (R key)
     if is_key_pressed(KeyCode::R) {
         game.reset();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
     }
 }
 
@@ -728,6 +763,37 @@ fn draw_enhanced_board_with_data(board: &Board) {
     );
 }
 
+
+/// Detect and play audio for game events
+fn detect_and_play_audio_events(
+    game: &Game,
+    audio_system: &AudioSystem,
+    prev_score: u32,
+    prev_level: u32,
+    prev_lines_cleared: u32,
+    was_clearing_lines: bool,
+    prev_state: GameState,
+) {
+    // Line clearing sound (when lines start clearing)
+    if !was_clearing_lines && game.is_clearing_lines() {
+        audio_system.play_sound(SoundType::LineClear);
+    }
+    
+    // Piece lock sound (when score increases without clearing lines)
+    if game.score > prev_score && !game.is_clearing_lines() {
+        audio_system.play_sound_with_volume(SoundType::PieceSnap, 0.8);
+    }
+    
+    // Level up sound
+    if game.level() > prev_level {
+        audio_system.play_sound(SoundType::LevelComplete);
+    }
+    
+    // Game over sound
+    if prev_state == GameState::Playing && game.state == GameState::GameOver {
+        audio_system.play_sound(SoundType::GameOver);
+    }
+}
 
 /// Draw enhanced UI elements
 fn draw_enhanced_ui(game: &Game) {
