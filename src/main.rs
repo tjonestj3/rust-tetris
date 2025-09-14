@@ -330,7 +330,7 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
     }
 }
 
-/// Draw the ghost block cursor for placement
+/// Draw the ghost block cursor for placement with rainbow clockwise animation
 fn draw_ghost_block_cursor(game: &Game) {
     let (cursor_x, cursor_y) = game.ghost_block_cursor;
     
@@ -340,80 +340,102 @@ fn draw_ghost_block_cursor(game: &Game) {
         let cell_x = BOARD_OFFSET_X + (cursor_x as f32 * CELL_SIZE);
         let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
         
-        // Get strategic value for color coding
-        let (ghost_color, priority_text) = if let Some((_, _, blocks_needed)) = game.get_current_position_info() {
-            let color = match blocks_needed {
-                1 => Color::new(0.2, 1.0, 0.2, 0.8), // Bright green - excellent!
-                2 => Color::new(0.6, 1.0, 0.2, 0.8), // Yellow-green - very good  
-                3 => Color::new(1.0, 0.8, 0.2, 0.8), // Yellow - good
-                4 => Color::new(1.0, 0.6, 0.2, 0.8), // Orange - okay
-                _ => Color::new(1.0, 0.4, 0.4, 0.8), // Red - not ideal
-            };
-            (color, blocks_needed.to_string())
-        } else {
-            (Color::new(0.8, 0.8, 1.0, 0.8), "?".to_string())
-        };
+        // Draw clockwise rainbow animation around the square
+        draw_rainbow_clockwise_border(cell_x, cell_y, CELL_SIZE, game.ghost_block_blink_timer);
         
-        // Draw pulsing outline
-        let pulse = (game.ghost_block_blink_timer * 4.0).sin() as f32 * 0.3 + 0.7;
-        draw_rectangle_lines(
-            cell_x + 1.0,
-            cell_y + 1.0,
-            CELL_SIZE - 2.0,
-            CELL_SIZE - 2.0,
-            3.0 * pulse,
-            Color::new(ghost_color.r, ghost_color.g, ghost_color.b, pulse),
-        );
-        
-        // Draw inner glow
+        // Draw subtle inner glow (constant)
         draw_rectangle(
-            cell_x + 4.0,
-            cell_y + 4.0,
-            CELL_SIZE - 8.0,
-            CELL_SIZE - 8.0,
-            Color::new(ghost_color.r, ghost_color.g, ghost_color.b, 0.3 * pulse),
-        );
-        
-        // Draw corner indicators
-        let corner_size = 6.0;
-        let corner_color = Color::new(1.0, 1.0, 1.0, pulse);
-        
-        // Top-left corner
-        draw_rectangle(cell_x, cell_y, corner_size, 2.0, corner_color);
-        draw_rectangle(cell_x, cell_y, 2.0, corner_size, corner_color);
-        
-        // Top-right corner
-        draw_rectangle(cell_x + CELL_SIZE - corner_size, cell_y, corner_size, 2.0, corner_color);
-        draw_rectangle(cell_x + CELL_SIZE - 2.0, cell_y, 2.0, corner_size, corner_color);
-        
-        // Bottom-left corner
-        draw_rectangle(cell_x, cell_y + CELL_SIZE - 2.0, corner_size, 2.0, corner_color);
-        draw_rectangle(cell_x, cell_y + CELL_SIZE - corner_size, 2.0, corner_size, corner_color);
-        
-        // Bottom-right corner
-        draw_rectangle(cell_x + CELL_SIZE - corner_size, cell_y + CELL_SIZE - 2.0, corner_size, 2.0, corner_color);
-        draw_rectangle(cell_x + CELL_SIZE - 2.0, cell_y + CELL_SIZE - corner_size, 2.0, corner_size, corner_color);
-        
-        // Draw priority number in center of cursor
-        let text_x = cell_x + CELL_SIZE / 2.0 - 8.0; // Rough centering
-        let text_y = cell_y + CELL_SIZE / 2.0 + 4.0;
-        draw_text(
-            &priority_text,
-            text_x,
-            text_y,
-            20.0,
-            Color::new(1.0, 1.0, 1.0, pulse * 1.2),
-        );
-        
-        // Draw text shadow for better visibility
-        draw_text(
-            &priority_text,
-            text_x + 1.0,
-            text_y + 1.0,
-            20.0,
-            Color::new(0.0, 0.0, 0.0, pulse * 0.8),
+            cell_x + 6.0,
+            cell_y + 6.0,
+            CELL_SIZE - 12.0,
+            CELL_SIZE - 12.0,
+            Color::new(1.0, 1.0, 1.0, 0.15),
         );
     }
+}
+
+/// Draw a rainbow border that travels clockwise around a square
+fn draw_rainbow_clockwise_border(x: f32, y: f32, size: f32, time: f64) {
+    let border_width = 3.0;
+    let segments_per_side = 8; // Number of color segments per side
+    let total_segments = segments_per_side * 4; // 4 sides
+    let segment_length = size / segments_per_side as f32;
+    
+    // Animation speed - how fast the rainbow travels
+    let animation_speed = 4.0;
+    let time_offset = (time * animation_speed) % (total_segments as f64);
+    
+    // Draw each segment of the border
+    for i in 0..total_segments {
+        let progress = i as f64;
+        let animated_progress = (progress + time_offset) % (total_segments as f64);
+        
+        // Create rainbow color based on animated position
+        let hue = (animated_progress / total_segments as f64) * 6.0; // 0-6 for full rainbow
+        let rainbow_color = hsv_to_rgb(hue, 1.0, 1.0);
+        
+        // Calculate position around the perimeter clockwise
+        let (seg_x, seg_y, seg_width, seg_height) = match i / segments_per_side {
+            // Top side (left to right)
+            0 => {
+                let segment_x = x + (i % segments_per_side) as f32 * segment_length;
+                (segment_x, y - border_width, segment_length, border_width)
+            },
+            // Right side (top to bottom)  
+            1 => {
+                let segment_y = y + (i % segments_per_side) as f32 * segment_length;
+                (x + size, segment_y, border_width, segment_length)
+            },
+            // Bottom side (right to left)
+            2 => {
+                let segment_x = x + size - (i % segments_per_side + 1) as f32 * segment_length;
+                (segment_x, y + size, segment_length, border_width)
+            },
+            // Left side (bottom to top)
+            _ => {
+                let segment_y = y + size - (i % segments_per_side + 1) as f32 * segment_length;
+                (x - border_width, segment_y, border_width, segment_length)
+            }
+        };
+        
+        // Use full vibrant rainbow colors
+        let final_color = Color::new(
+            rainbow_color.r,
+            rainbow_color.g, 
+            rainbow_color.b,
+            0.95  // Slightly transparent for nice blending
+        );
+        
+        draw_rectangle(seg_x, seg_y, seg_width, seg_height, final_color);
+    }
+}
+
+/// Convert HSV to RGB color
+fn hsv_to_rgb(h: f64, s: f64, v: f64) -> Color {
+    let c = v * s;
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = v - c;
+    
+    let (r_prime, g_prime, b_prime) = if h < 1.0 {
+        (c, x, 0.0)
+    } else if h < 2.0 {
+        (x, c, 0.0)
+    } else if h < 3.0 {
+        (0.0, c, x)
+    } else if h < 4.0 {
+        (0.0, x, c)
+    } else if h < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    
+    Color::new(
+        (r_prime + m) as f32,
+        (g_prime + m) as f32,
+        (b_prime + m) as f32,
+        1.0
+    )
 }
 
 /// Draw enhanced line clearing animation with multiple effects
@@ -884,8 +906,6 @@ fn draw_enhanced_ui(game: &Game) {
     
     // Board info label or ghost block placement mode indicator
     if game.ghost_block_placement_mode {
-        let pulse = (game.ghost_block_blink_timer * 2.0).sin() as f32 * 0.3 + 0.7;
-        
         // Main placement mode message
         let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
         draw_text(
@@ -893,7 +913,7 @@ fn draw_enhanced_ui(game: &Game) {
             BOARD_OFFSET_X,
             BOARD_OFFSET_Y - 50.0,
             TEXT_SIZE * 0.7,
-            Color::new(0.8, 0.8, 1.0, pulse),
+            Color::new(0.8, 0.8, 1.0, 0.9),
         );
         
         // Strategic info about current position
@@ -908,11 +928,11 @@ fn draw_enhanced_ui(game: &Game) {
             
             // Color based on strategic value (fewer blocks needed = better = greener)
             let strategy_color = match blocks_needed {
-                1 => Color::new(0.2, 1.0, 0.2, pulse),      // Bright green - excellent!
-                2 => Color::new(0.6, 1.0, 0.2, pulse),      // Yellow-green - very good
-                3 => Color::new(1.0, 0.8, 0.2, pulse),      // Yellow - good
-                4 => Color::new(1.0, 0.6, 0.2, pulse),      // Orange - okay
-                _ => Color::new(1.0, 0.4, 0.4, pulse),      // Red - not ideal
+                1 => Color::new(0.2, 1.0, 0.2, 0.9),       // Bright green - excellent!
+                2 => Color::new(0.6, 1.0, 0.2, 0.9),       // Yellow-green - very good
+                3 => Color::new(1.0, 0.8, 0.2, 0.9),       // Yellow - good
+                4 => Color::new(1.0, 0.6, 0.2, 0.9),       // Orange - okay
+                _ => Color::new(1.0, 0.4, 0.4, 0.9),       // Red - not ideal
             };
             
             draw_text(

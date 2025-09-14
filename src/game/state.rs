@@ -519,13 +519,9 @@ impl Game {
         false
     }
     
-    /// Check if ghost block cursor should be visible (blinking effect)
+    /// Check if ghost block cursor should be visible (always visible when in placement mode)
     pub fn is_ghost_cursor_visible(&self) -> bool {
-        if !self.ghost_block_placement_mode {
-            return false;
-        }
-        // Blink every 0.5 seconds
-        (self.ghost_block_blink_timer % 1.0) < 0.5
+        self.ghost_block_placement_mode
     }
     
     /// Analyze board and find smart positions for ghost block placement
