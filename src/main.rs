@@ -768,7 +768,7 @@ fn draw_enhanced_board_with_data(board: &Board) {
 fn detect_and_play_audio_events(
     game: &Game,
     audio_system: &AudioSystem,
-    prev_score: u32,
+    _prev_score: u32,
     prev_level: u32,
     _prev_lines_cleared: u32,
     was_clearing_lines: bool,
@@ -779,8 +779,8 @@ fn detect_and_play_audio_events(
         audio_system.play_sound(SoundType::LineClear);
     }
     
-    // Piece lock sound (when score increases without clearing lines)
-    if game.score > prev_score && !game.is_clearing_lines() {
+    // Piece lock sound (when a piece was just locked, but not during line clearing)
+    if game.piece_just_locked && !game.is_clearing_lines() {
         audio_system.play_sound_with_volume(SoundType::PieceSnap, 0.8);
     }
     

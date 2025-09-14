@@ -46,6 +46,14 @@ pub struct Game {
     pub left_move_timer: f64,
     /// Right movement input timer
     pub right_move_timer: f64,
+    /// Flag to track when a piece was just locked (for audio feedback)
+    pub piece_just_locked: bool,
+    /// Lock delay timer - tracks how long piece has been unable to move down
+    pub lock_delay_timer: f64,
+    /// Whether the current piece is in the "locking" state (can't move down)
+    pub piece_is_locking: bool,
+    /// Number of times lock delay has been reset for current piece
+    pub lock_resets: u32,
 }
 
 impl Game {
@@ -67,6 +75,10 @@ impl Game {
             soft_drop_timer: 0.0,
             left_move_timer: 0.0,
             right_move_timer: 0.0,
+            piece_just_locked: false,
+            lock_delay_timer: 0.0,
+            piece_is_locking: false,
+            lock_resets: 0,
         };
         
         // Spawn the first piece
@@ -80,6 +92,9 @@ impl Game {
         if self.state != GameState::Playing {
             return;
         }
+        
+        // Reset piece locked flag at the start of each update cycle
+        self.piece_just_locked = false;
         
         self.game_time += delta_time;
         
@@ -96,6 +111,16 @@ impl Game {
         self.soft_drop_timer += delta_time;
         self.left_move_timer += delta_time;
         self.right_move_timer += delta_time;
+        
+        // Update lock delay timer if piece is in locking state
+        if self.piece_is_locking {
+            self.lock_delay_timer += delta_time;
+            // Check if lock delay time has expired
+            if self.lock_delay_timer >= LOCK_DELAY {
+                self.lock_current_piece();
+                return; // Don't continue with other logic after locking
+            }
+        }
         
         // Check if it's time to drop the current piece
         if self.drop_timer >= self.drop_interval {
@@ -115,12 +140,17 @@ impl Game {
             piece.move_by(0, 1);
             
             if self.is_piece_valid(&piece) {
-                // Successfully moved down
+                // Successfully moved down - reset lock delay state
                 self.current_piece = Some(piece);
+                self.piece_is_locking = false;
+                self.lock_delay_timer = 0.0;
                 return true;
             } else {
-                // Can't move down, lock the piece
-                self.lock_current_piece();
+                // Can't move down - start lock delay if not already started
+                if !self.piece_is_locking {
+                    self.piece_is_locking = true;
+                    self.lock_delay_timer = 0.0;
+                }
                 return false;
             }
         }
@@ -140,6 +170,14 @@ impl Game {
     /// Lock the current piece to the board and spawn a new one
     pub fn lock_current_piece(&mut self) {
         if let Some(piece) = self.current_piece.take() {
+            // Set flag to indicate a piece was just locked (for audio feedback)
+            self.piece_just_locked = true;
+            
+            // Reset lock delay state
+            self.piece_is_locking = false;
+            self.lock_delay_timer = 0.0;
+            self.lock_resets = 0;
+            
             // Place the piece on the board
             for (x, y) in piece.absolute_blocks() {
                 if x >= 0 && y >= 0 {
@@ -173,6 +211,11 @@ impl Game {
         // Reset hold usage for the new piece
         self.hold_used_this_piece = false;
         
+        // Reset lock delay state for new piece
+        self.piece_is_locking = false;
+        self.lock_delay_timer = 0.0;
+        self.lock_resets = 0;
+        
         // Check if the new piece can be placed
         if self.is_piece_valid(&new_piece) {
             self.current_piece = Some(new_piece);
@@ -203,6 +246,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful horizontal movement
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -216,6 +261,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful rotation
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -229,6 +276,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Reset lock delay on successful rotation
+                self.reset_lock_delay();
                 return true;
             }
         }
@@ -382,6 +431,8 @@ impl Game {
                     // Check if the swapped piece can be placed
                     if self.is_piece_valid(&new_piece) {
                         self.current_piece = Some(new_piece);
+                        // Reset lock delay for held piece
+                        self.reset_lock_delay();
                     } else {
                         // Can't place swapped piece - game over
                         self.held_piece = Some(current.piece_type); // Keep the piece in hold
@@ -399,6 +450,8 @@ impl Game {
                     // Check if the new piece can be placed
                     if self.is_piece_valid(&new_piece) {
                         self.current_piece = Some(new_piece);
+                        // Reset lock delay for new piece from hold
+                        self.reset_lock_delay();
                     } else {
                         // Game over - can't spawn new piece
                         self.state = GameState::GameOver;
@@ -414,6 +467,16 @@ impl Game {
     /// Check if hold is available for the current piece
     pub fn can_hold(&self) -> bool {
         !self.hold_used_this_piece && self.current_piece.is_some()
+    }
+    
+    /// Reset the lock delay timer and state (if reset limit hasn't been reached)
+    fn reset_lock_delay(&mut self) {
+        // Only reset if we haven't exceeded the maximum number of resets
+        if self.lock_resets < MAX_LOCK_RESETS {
+            self.piece_is_locking = false;
+            self.lock_delay_timer = 0.0;
+            self.lock_resets += 1;
+        }
     }
     
     /// Calculate where the current piece will land (ghost piece position)
