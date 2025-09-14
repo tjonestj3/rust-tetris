@@ -46,6 +46,20 @@ pub struct Game {
     pub left_move_timer: f64,
     /// Right movement input timer
     pub right_move_timer: f64,
+
+    /// Ghost blocks available for placement
+    pub ghost_blocks_available: u32,
+    /// Ghost block placement mode active
+    pub ghost_block_placement_mode: bool,
+    /// Ghost block cursor position (x, y)
+    pub ghost_block_cursor: (i32, i32),
+    /// Ghost block blink timer for animation
+    pub ghost_block_blink_timer: f64,
+    /// Smart positions sorted by strategic value (best first)
+    pub ghost_smart_positions: Vec<(i32, i32, u32)>, // (x, y, blocks_needed_to_complete_line)
+    /// Current index in smart positions list
+    pub ghost_cursor_index: usize,
+
     /// Flag to track when a piece was just locked (for audio feedback)
     pub piece_just_locked: bool,
     /// Lock delay timer - tracks how long piece has been unable to move down
@@ -75,6 +89,14 @@ impl Game {
             soft_drop_timer: 0.0,
             left_move_timer: 0.0,
             right_move_timer: 0.0,
+
+            ghost_blocks_available: 0,
+            ghost_block_placement_mode: false,
+            ghost_block_cursor: (BOARD_WIDTH as i32 / 2, (BUFFER_HEIGHT + VISIBLE_HEIGHT / 2) as i32),
+            ghost_block_blink_timer: 0.0,
+            ghost_smart_positions: Vec::new(),
+            ghost_cursor_index: 0,
+
             piece_just_locked: false,
             lock_delay_timer: 0.0,
             piece_is_locking: false,
@@ -111,6 +133,7 @@ impl Game {
         self.soft_drop_timer += delta_time;
         self.left_move_timer += delta_time;
         self.right_move_timer += delta_time;
+        self.ghost_block_blink_timer += delta_time;
         
         // Update lock delay timer if piece is in locking state
         if self.piece_is_locking {
@@ -334,6 +357,19 @@ impl Game {
         if !self.clearing_lines.is_empty() {
             let lines_cleared = self.board.clear_lines(&self.clearing_lines);
             self.add_score_for_lines(lines_cleared);
+            
+            // Award ghost block every 4 lines cleared
+            let total_lines_before = self.board.lines_cleared() - lines_cleared;
+            let total_lines_after = self.board.lines_cleared();
+            let ghost_blocks_before = total_lines_before / 4;
+            let ghost_blocks_after = total_lines_after / 4;
+            let ghost_blocks_earned = ghost_blocks_after - ghost_blocks_before;
+            
+            if ghost_blocks_earned > 0 {
+                self.ghost_blocks_available += ghost_blocks_earned;
+                log::info!("Ghost block earned! {} available", self.ghost_blocks_available);
+            }
+            
             self.clearing_lines.clear();
             self.clear_animation_timer = 0.0;
         }
@@ -344,8 +380,27 @@ impl Game {
             return;
         }
         
-        // Spawn next piece
-        self.spawn_next_piece();
+        // Only spawn next piece if we don't have a current piece
+        // This prevents ghost block placements from interrupting the current falling piece
+        if self.current_piece.is_none() {
+            self.spawn_next_piece();
+        } else {
+            // If we have a current piece, make sure it's still in a valid position after line clearing
+            // If not valid, try to move it up until it is valid
+            if let Some(mut piece) = self.current_piece.clone() {
+                while !self.is_piece_valid(&piece) && piece.position.1 > 0 {
+                    piece.move_by(0, -1);
+                }
+                
+                // If piece is still not valid even after moving up, lock it and spawn new one
+                if !self.is_piece_valid(&piece) {
+                    self.current_piece = None;
+                    self.spawn_next_piece();
+                } else {
+                    self.current_piece = Some(piece);
+                }
+            }
+        }
     }
     
     /// Handle continuous soft drop
@@ -500,6 +555,180 @@ impl Game {
             }
         }
         None
+    }
+    
+    /// Toggle ghost block placement mode
+    pub fn toggle_ghost_block_mode(&mut self) {
+        if self.ghost_blocks_available > 0 {
+            self.ghost_block_placement_mode = !self.ghost_block_placement_mode;
+            if self.ghost_block_placement_mode {
+                // Analyze board and find smart positions
+                self.analyze_smart_positions();
+                self.ghost_block_blink_timer = 0.0;
+                log::info!("Ghost block placement mode activated with smart positioning");
+            } else {
+                log::info!("Ghost block placement mode deactivated");
+                self.ghost_smart_positions.clear();
+                self.ghost_cursor_index = 0;
+            }
+        }
+    }
+    
+    /// Move to next smart position
+    pub fn next_smart_position(&mut self) {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            self.ghost_cursor_index = (self.ghost_cursor_index + 1) % self.ghost_smart_positions.len();
+            let (x, y, _) = self.ghost_smart_positions[self.ghost_cursor_index];
+            self.ghost_block_cursor = (x, y);
+            log::debug!("Next smart position: ({}, {}) - index {}", x, y, self.ghost_cursor_index);
+        }
+    }
+    
+    /// Move to previous smart position
+    pub fn previous_smart_position(&mut self) {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            self.ghost_cursor_index = if self.ghost_cursor_index == 0 {
+                self.ghost_smart_positions.len() - 1
+            } else {
+                self.ghost_cursor_index - 1
+            };
+            let (x, y, _) = self.ghost_smart_positions[self.ghost_cursor_index];
+            self.ghost_block_cursor = (x, y);
+            log::debug!("Previous smart position: ({}, {}) - index {}", x, y, self.ghost_cursor_index);
+        }
+    }
+    
+    /// Move ghost block cursor manually (for arrow keys)
+    pub fn move_ghost_block_cursor(&mut self, dx: i32, dy: i32) {
+        if self.ghost_block_placement_mode {
+            let new_x = (self.ghost_block_cursor.0 + dx).max(0).min(BOARD_WIDTH as i32 - 1);
+            let new_y = (self.ghost_block_cursor.1 + dy).max(BUFFER_HEIGHT as i32).min((BOARD_HEIGHT + BUFFER_HEIGHT - 1) as i32);
+            self.ghost_block_cursor = (new_x, new_y);
+            
+            // When manually moving, find the closest smart position and update index
+            self.update_cursor_index_for_position(new_x, new_y);
+        }
+    }
+    
+    /// Update cursor index to match the current position (for manual movement)
+    fn update_cursor_index_for_position(&mut self, x: i32, y: i32) {
+        if let Some(index) = self.ghost_smart_positions.iter().position(|(px, py, _)| *px == x && *py == y) {
+            self.ghost_cursor_index = index;
+        }
+        // If position is not in smart positions, keep current index
+    }
+    
+    /// Get strategic info for current cursor position
+    pub fn get_current_position_info(&self) -> Option<(usize, usize, u32)> {
+        if self.ghost_block_placement_mode && !self.ghost_smart_positions.is_empty() {
+            if let Some(&(_, _, blocks_needed)) = self.ghost_smart_positions.get(self.ghost_cursor_index) {
+                return Some((self.ghost_cursor_index + 1, self.ghost_smart_positions.len(), blocks_needed));
+            }
+        }
+        None
+    }
+    
+    /// Place a ghost block at the current cursor position
+    pub fn place_ghost_block(&mut self) -> bool {
+        if self.ghost_block_placement_mode && self.ghost_blocks_available > 0 {
+            let (x, y) = self.ghost_block_cursor;
+            
+            // Check if position is valid (empty)
+            if let Some(cell) = self.board.get_cell(x, y) {
+                if cell.is_empty() {
+                    // Place the ghost block
+                    self.board.set_cell(x, y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0))); // Light blue ghost block
+                    self.ghost_blocks_available -= 1;
+                    self.ghost_block_placement_mode = false;
+                    
+                    // Check if this placement creates any complete lines
+                    let complete_lines = self.board.find_complete_lines();
+                    if !complete_lines.is_empty() {
+                        self.start_line_clear_animation(complete_lines);
+                    }
+                    
+                    log::info!("Ghost block placed at ({}, {}). Remaining: {}", x, y, self.ghost_blocks_available);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    
+    /// Check if ghost block cursor should be visible (always visible when in placement mode)
+    pub fn is_ghost_cursor_visible(&self) -> bool {
+        self.ghost_block_placement_mode
+    }
+    
+    /// Analyze board and find smart positions for ghost block placement
+    pub fn analyze_smart_positions(&mut self) {
+        let mut positions = Vec::new();
+        
+        // Check each empty position on the board
+        for y in BUFFER_HEIGHT..(BOARD_HEIGHT + BUFFER_HEIGHT) {
+            for x in 0..BOARD_WIDTH {
+                let x_i32 = x as i32;
+                let y_i32 = y as i32;
+                
+                // Only consider empty positions
+                if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
+                    if cell.is_empty() {
+                        // Calculate how many blocks are needed to complete this line
+                        let blocks_needed = self.calculate_blocks_needed_for_line(y);
+                        if blocks_needed > 0 {
+                            positions.push((x_i32, y_i32, blocks_needed));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Sort positions by strategic value:
+        // 1. Fewer blocks needed to complete line (better)
+        // 2. Lower row number (closer to bottom, better)
+        // 3. Closer to center horizontally (better)
+        positions.sort_by(|a, b| {
+            // Primary: blocks needed (ascending - fewer is better)
+            match a.2.cmp(&b.2) {
+                std::cmp::Ordering::Equal => {
+                    // Secondary: row position (descending - lower rows first)
+                    match b.1.cmp(&a.1) {
+                        std::cmp::Ordering::Equal => {
+                            // Tertiary: distance from center (ascending - closer to center is better)
+                            let center = BOARD_WIDTH as i32 / 2;
+                            let dist_a = (a.0 - center).abs();
+                            let dist_b = (b.0 - center).abs();
+                            dist_a.cmp(&dist_b)
+                        }
+                        other => other,
+                    }
+                }
+                other => other,
+            }
+        });
+        
+        self.ghost_smart_positions = positions;
+        self.ghost_cursor_index = 0;
+        
+        // Set initial cursor position to the best position (if any)
+        if let Some(&(x, y, _)) = self.ghost_smart_positions.first() {
+            self.ghost_block_cursor = (x, y);
+        }
+        
+        log::info!("Found {} smart positions for ghost block placement", self.ghost_smart_positions.len());
+    }
+    
+    /// Calculate how many blocks are needed to complete a specific line
+    fn calculate_blocks_needed_for_line(&self, line_y: usize) -> u32 {
+        let mut empty_count = 0;
+        for x in 0..BOARD_WIDTH {
+            if let Some(cell) = self.board.get_cell(x as i32, line_y as i32) {
+                if cell.is_empty() {
+                    empty_count += 1;
+                }
+            }
+        }
+        empty_count
     }
 }
 

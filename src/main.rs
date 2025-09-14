@@ -120,6 +120,11 @@ async fn main() {
             }
         }
         
+        // Draw ghost block cursor if in placement mode
+        if game.is_ghost_cursor_visible() {
+            draw_ghost_block_cursor(&game);
+        }
+        
         // Draw next piece preview
         draw_next_piece_preview(&game.next_piece);
         
@@ -195,6 +200,43 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
     // Only handle game input when playing
     if game.state != GameState::Playing {
         return;
+    }
+    
+    // Ghost block controls (available during normal play)
+    if is_key_pressed(KeyCode::B) {
+        if game.ghost_block_placement_mode {
+            // B to place block when in placement mode
+            game.place_ghost_block();
+        } else {
+            // B to activate ghost block placement mode
+            game.toggle_ghost_block_mode();
+        }
+    }
+    
+    // Ghost block cursor movement (only when in placement mode)
+    if game.ghost_block_placement_mode {
+        if is_key_pressed(KeyCode::M) {
+            // M for next smart position
+            game.next_smart_position();
+        }
+        if is_key_pressed(KeyCode::N) {
+            // N for previous smart position
+            game.previous_smart_position();
+        }
+        // Also allow arrow keys for manual fine-tuning
+        if is_key_pressed(KeyCode::Up) {
+            game.move_ghost_block_cursor(0, -1);
+        }
+        if is_key_pressed(KeyCode::Down) {
+            game.move_ghost_block_cursor(0, 1);
+        }
+        if is_key_pressed(KeyCode::Left) {
+            game.move_ghost_block_cursor(-1, 0);
+        }
+        if is_key_pressed(KeyCode::Right) {
+            game.move_ghost_block_cursor(1, 0);
+        }
+        return; // Skip normal game controls when in placement mode
     }
     
     // Continuous horizontal movement (Arrow keys + WASD)
@@ -329,6 +371,114 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
             );
         }
     }
+}
+
+/// Draw the ghost block cursor for placement with rainbow clockwise animation
+fn draw_ghost_block_cursor(game: &Game) {
+    let (cursor_x, cursor_y) = game.ghost_block_cursor;
+    
+    // Only draw if cursor is in visible area
+    if cursor_y >= BUFFER_HEIGHT as i32 {
+        let visible_y = cursor_y - BUFFER_HEIGHT as i32;
+        let cell_x = BOARD_OFFSET_X + (cursor_x as f32 * CELL_SIZE);
+        let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
+        
+        // Draw clockwise rainbow animation around the square
+        draw_rainbow_clockwise_border(cell_x, cell_y, CELL_SIZE, game.ghost_block_blink_timer);
+        
+        // Draw subtle inner glow (constant)
+        draw_rectangle(
+            cell_x + 6.0,
+            cell_y + 6.0,
+            CELL_SIZE - 12.0,
+            CELL_SIZE - 12.0,
+            Color::new(1.0, 1.0, 1.0, 0.15),
+        );
+    }
+}
+
+/// Draw a rainbow border that travels clockwise around a square
+fn draw_rainbow_clockwise_border(x: f32, y: f32, size: f32, time: f64) {
+    let border_width = 3.0;
+    let segments_per_side = 8; // Number of color segments per side
+    let total_segments = segments_per_side * 4; // 4 sides
+    let segment_length = size / segments_per_side as f32;
+    
+    // Animation speed - how fast the rainbow travels
+    let animation_speed = 4.0;
+    let time_offset = (time * animation_speed) % (total_segments as f64);
+    
+    // Draw each segment of the border
+    for i in 0..total_segments {
+        let progress = i as f64;
+        let animated_progress = (progress + time_offset) % (total_segments as f64);
+        
+        // Create rainbow color based on animated position
+        let hue = (animated_progress / total_segments as f64) * 6.0; // 0-6 for full rainbow
+        let rainbow_color = hsv_to_rgb(hue, 1.0, 1.0);
+        
+        // Calculate position around the perimeter clockwise
+        let (seg_x, seg_y, seg_width, seg_height) = match i / segments_per_side {
+            // Top side (left to right)
+            0 => {
+                let segment_x = x + (i % segments_per_side) as f32 * segment_length;
+                (segment_x, y - border_width, segment_length, border_width)
+            },
+            // Right side (top to bottom)  
+            1 => {
+                let segment_y = y + (i % segments_per_side) as f32 * segment_length;
+                (x + size, segment_y, border_width, segment_length)
+            },
+            // Bottom side (right to left)
+            2 => {
+                let segment_x = x + size - (i % segments_per_side + 1) as f32 * segment_length;
+                (segment_x, y + size, segment_length, border_width)
+            },
+            // Left side (bottom to top)
+            _ => {
+                let segment_y = y + size - (i % segments_per_side + 1) as f32 * segment_length;
+                (x - border_width, segment_y, border_width, segment_length)
+            }
+        };
+        
+        // Use full vibrant rainbow colors
+        let final_color = Color::new(
+            rainbow_color.r,
+            rainbow_color.g, 
+            rainbow_color.b,
+            0.95  // Slightly transparent for nice blending
+        );
+        
+        draw_rectangle(seg_x, seg_y, seg_width, seg_height, final_color);
+    }
+}
+
+/// Convert HSV to RGB color
+fn hsv_to_rgb(h: f64, s: f64, v: f64) -> Color {
+    let c = v * s;
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = v - c;
+    
+    let (r_prime, g_prime, b_prime) = if h < 1.0 {
+        (c, x, 0.0)
+    } else if h < 2.0 {
+        (x, c, 0.0)
+    } else if h < 3.0 {
+        (0.0, c, x)
+    } else if h < 4.0 {
+        (0.0, x, c)
+    } else if h < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    
+    Color::new(
+        (r_prime + m) as f32,
+        (g_prime + m) as f32,
+        (b_prime + m) as f32,
+        1.0
+    )
 }
 
 /// Draw enhanced line clearing animation with multiple effects
@@ -839,6 +989,8 @@ fn draw_enhanced_ui(game: &Game) {
         "↑ X W - Rotate CW",
         "Z - Rotate CCW",
         "Space - Hard Drop",
+        "B - Smart Ghost Block (4 lines)",
+        "M/N - Next/Prev best spot",
         "C - Hold Piece",
         "Ghost shows landing spot",
         "P - Pause, R - Reset",
@@ -905,17 +1057,26 @@ fn draw_enhanced_ui(game: &Game) {
         format!("Score: {}", game.score),
         format!("Level: {}", game.level()),
         format!("Lines: {}", game.lines_cleared()),
+        format!("Ghost Blocks: {}", game.ghost_blocks_available),
         format!("State: {:?}", game.state),
         format!("Time: {:.0}s", game.game_time),
     ];
     
-    for stat in stats {
+    for (i, stat) in stats.iter().enumerate() {
+        let color = if i == 3 && game.ghost_blocks_available > 0 {
+            // Highlight ghost blocks count with pulsing effect when available
+            let pulse = (game.game_time * 3.0).sin() as f32 * 0.3 + 0.7;
+            Color::new(0.8, 0.8, 1.0, pulse) // Light blue pulsing
+        } else {
+            Color::new(0.9, 0.9, 0.95, 0.9) // Normal color
+        };
+        
         draw_text(
-            &stat,
+            stat,
             stats_x,
             stats_y,
             TEXT_SIZE * 0.75,
-            Color::new(0.9, 0.9, 0.95, 0.9),
+            color,
         );
         stats_y += 22.0;
     }
@@ -931,14 +1092,63 @@ fn draw_enhanced_ui(game: &Game) {
         );
     }
     
-    // Board info label
-    let board_info = "Live Game Data";
-    draw_text(
-        board_info,
-        BOARD_OFFSET_X,
-        BOARD_OFFSET_Y - 15.0,
-        TEXT_SIZE * 0.8,
-        Color::new(0.8, 0.9, 1.0, 0.7),
-    );
+    // Board info label or ghost block placement mode indicator
+    if game.ghost_block_placement_mode {
+        // Main placement mode message
+        let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
+        draw_text(
+            placement_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 50.0,
+            TEXT_SIZE * 0.7,
+            Color::new(0.8, 0.8, 1.0, 0.9),
+        );
+        
+        // Strategic info about current position
+        if let Some((current_pos, total_positions, blocks_needed)) = game.get_current_position_info() {
+            let strategy_info = format!(
+                "Position {}/{} - {} block{} needed to complete line",
+                current_pos,
+                total_positions,
+                blocks_needed,
+                if blocks_needed == 1 { "" } else { "s" }
+            );
+            
+            // Color based on strategic value (fewer blocks needed = better = greener)
+            let strategy_color = match blocks_needed {
+                1 => Color::new(0.2, 1.0, 0.2, 0.9),       // Bright green - excellent!
+                2 => Color::new(0.6, 1.0, 0.2, 0.9),       // Yellow-green - very good
+                3 => Color::new(1.0, 0.8, 0.2, 0.9),       // Yellow - good
+                4 => Color::new(1.0, 0.6, 0.2, 0.9),       // Orange - okay
+                _ => Color::new(1.0, 0.4, 0.4, 0.9),       // Red - not ideal
+            };
+            
+            draw_text(
+                &strategy_info,
+                BOARD_OFFSET_X,
+                BOARD_OFFSET_Y - 30.0,
+                TEXT_SIZE * 0.75,
+                strategy_color,
+            );
+        }
+        
+        let board_info = "Live Game Data";
+        draw_text(
+            board_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 15.0,
+            TEXT_SIZE * 0.6,
+            Color::new(0.6, 0.7, 0.8, 0.5),
+        );
+    } else {
+        let board_info = "Live Game Data";
+        draw_text(
+            board_info,
+            BOARD_OFFSET_X,
+            BOARD_OFFSET_Y - 15.0,
+            TEXT_SIZE * 0.8,
+            Color::new(0.8, 0.9, 1.0, 0.7),
+        );
+    }
 }
 
