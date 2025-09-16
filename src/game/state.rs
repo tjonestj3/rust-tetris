@@ -68,6 +68,11 @@ pub struct Game {
     pub piece_is_locking: bool,
     /// Number of times lock delay has been reset for current piece
     pub lock_resets: u32,
+    
+    /// TETRIS celebration state
+    pub tetris_celebration_active: bool,
+    /// TETRIS celebration timer for animation
+    pub tetris_celebration_timer: f64,
 }
 
 impl Game {
@@ -101,6 +106,9 @@ impl Game {
             lock_delay_timer: 0.0,
             piece_is_locking: false,
             lock_resets: 0,
+            
+            tetris_celebration_active: false,
+            tetris_celebration_timer: 0.0,
         };
         
         // Spawn the first piece
@@ -134,6 +142,15 @@ impl Game {
         self.left_move_timer += delta_time;
         self.right_move_timer += delta_time;
         self.ghost_block_blink_timer += delta_time;
+        
+        // Update TETRIS celebration timer
+        if self.tetris_celebration_active {
+            self.tetris_celebration_timer += delta_time;
+            if self.tetris_celebration_timer >= TETRIS_CELEBRATION_TIME {
+                self.tetris_celebration_active = false;
+                self.tetris_celebration_timer = 0.0;
+            }
+        }
         
         // Update lock delay timer if piece is in locking state
         if self.piece_is_locking {
@@ -377,6 +394,13 @@ impl Game {
         if !self.clearing_lines.is_empty() {
             let lines_cleared = self.board.clear_lines(&self.clearing_lines);
             self.add_score_for_lines(lines_cleared);
+            
+            // Check for TETRIS celebration (4 lines cleared at once)
+            if lines_cleared == 4 {
+                self.tetris_celebration_active = true;
+                self.tetris_celebration_timer = 0.0;
+                log::info!("TETRIS! 4 lines cleared - starting celebration!");
+            }
             
             // Award ghost block every 4 lines cleared
             let total_lines_before = self.board.lines_cleared() - lines_cleared;
@@ -760,6 +784,20 @@ impl Game {
             }
         }
         empty_count
+    }
+    
+    /// Check if TETRIS celebration is currently active
+    pub fn is_tetris_celebration_active(&self) -> bool {
+        self.tetris_celebration_active
+    }
+    
+    /// Get the TETRIS celebration animation progress (0.0 to 1.0)
+    pub fn get_tetris_celebration_progress(&self) -> f64 {
+        if self.tetris_celebration_active {
+            (self.tetris_celebration_timer / TETRIS_CELEBRATION_TIME).min(1.0)
+        } else {
+            0.0
+        }
     }
 }
 

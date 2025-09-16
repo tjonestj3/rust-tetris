@@ -133,6 +133,11 @@ async fn main() {
         
         // Draw title with enhanced styling
         draw_enhanced_ui(&game);
+        
+        // Draw TETRIS celebration if active
+        if game.is_tetris_celebration_active() {
+            draw_tetris_celebration(&game);
+        }
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -1276,6 +1281,208 @@ fn draw_enhanced_ui(game: &Game) {
                 strategy_color,
             );
         }
+    }
+}
+
+/// Draw animated TETRIS celebration message with rainbow colors and effects
+fn draw_tetris_celebration(game: &Game) {
+    let progress = game.get_tetris_celebration_progress();
+    
+    // Calculate animation phases
+    let fade_in_time = 0.2; // First 20% of animation
+    let stable_time = 0.6;  // 60% stable display
+    let fade_out_time = 0.2; // Last 20% fade out
+    
+    let alpha = if progress <= fade_in_time {
+        // Fade in phase
+        (progress / fade_in_time) as f32
+    } else if progress <= fade_in_time + stable_time {
+        // Stable phase
+        1.0
+    } else {
+        // Fade out phase
+        let fade_progress = (progress - fade_in_time - stable_time) / fade_out_time;
+        (1.0 - fade_progress) as f32
+    };
+    
+    // Scale effect - grows slightly then stabilizes
+    let scale = if progress <= fade_in_time {
+        0.5 + (progress / fade_in_time) as f32 * 0.7 // Grow from 0.5x to 1.2x
+    } else if progress <= fade_in_time + 0.1 {
+        1.2 - ((progress - fade_in_time) / 0.1) as f32 * 0.2 // Shrink back to 1.0x
+    } else {
+        1.0
+    };
+    
+    // Center the message on screen
+    let base_font_size = 80.0;
+    let font_size = base_font_size * scale;
+    let message = "TETRIS!";
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 50.0;
+    
+    // Background glow effect
+    let glow_size = 400.0 * scale;
+    let glow_alpha = alpha * 0.3;
+    draw_rectangle(
+        center_x - (glow_size - text_width) / 2.0,
+        center_y - glow_size / 4.0,
+        glow_size,
+        glow_size / 2.0,
+        Color::new(1.0, 1.0, 1.0, glow_alpha * 0.1),
+    );
+    
+    // Draw each letter with animated rainbow colors
+    let time_offset = game.get_tetris_celebration_progress() * 8.0; // Speed of color animation
+    let letter_spacing = font_size * 0.7;
+    
+    for (i, c) in message.chars().enumerate() {
+        if c == '!' {
+            continue; // Handle exclamation point separately
+        }
+        
+        let letter_x = center_x + (i as f32 * letter_spacing);
+        
+        // Create rainbow effect with time-based animation
+        let hue = ((i as f64 * 0.5) + time_offset) % 6.0;
+        let rainbow_color = hsv_to_rgb(hue, 1.0, 1.0);
+        let final_color = Color::new(
+            rainbow_color.r,
+            rainbow_color.g,
+            rainbow_color.b,
+            alpha,
+        );
+        
+        // Draw letter with outline for better visibility
+        let outline_color = Color::new(0.0, 0.0, 0.0, alpha * 0.8);
+        
+        // Draw outline (multiple passes for thickness)
+        for offset_x in [-2.0, 0.0, 2.0] {
+            for offset_y in [-2.0, 0.0, 2.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        &c.to_string(),
+                        letter_x + offset_x,
+                        center_y + offset_y,
+                        font_size,
+                        outline_color,
+                    );
+                }
+            }
+        }
+        
+        // Draw main letter
+        draw_text(
+            &c.to_string(),
+            letter_x,
+            center_y,
+            font_size,
+            final_color,
+        );
+        
+        // Add sparkle effect around letters
+        if progress > 0.1 {
+            let sparkle_count = 3;
+            for j in 0..sparkle_count {
+                let sparkle_time = (game.get_tetris_celebration_progress() * 6.0 + i as f64 * 0.5 + j as f64) % 1.0;
+                let sparkle_alpha = (sparkle_time.sin() * 0.5 + 0.5) as f32 * alpha * 0.8;
+                
+                if sparkle_alpha > 0.3 {
+                    let angle = sparkle_time * 6.28 + j as f64; // Full rotation
+                    let distance = 40.0 + sparkle_time as f32 * 20.0;
+                    let sparkle_x = letter_x + angle.cos() as f32 * distance;
+                    let sparkle_y = center_y + angle.sin() as f32 * distance * 0.5;
+                    
+                    let sparkle_size = 3.0 + sparkle_alpha * 2.0;
+                    draw_rectangle(
+                        sparkle_x - sparkle_size / 2.0,
+                        sparkle_y - sparkle_size / 2.0,
+                        sparkle_size,
+                        sparkle_size,
+                        Color::new(1.0, 1.0, 1.0, sparkle_alpha),
+                    );
+                }
+            }
+        }
+    }
+    
+    // Draw exclamation point with special pulsing effect
+    let excl_x = center_x + (5.0 * letter_spacing);
+    let pulse = (game.get_tetris_celebration_progress() * 12.0).sin() as f32 * 0.2 + 1.0;
+    let excl_scale = scale * pulse;
+    let excl_font_size = font_size * excl_scale;
+    
+    // Exclamation point gets extra bright yellow color
+    let excl_color = Color::new(1.0, 1.0, 0.3, alpha);
+    let excl_outline = Color::new(0.0, 0.0, 0.0, alpha * 0.8);
+    
+    // Draw exclamation outline
+    for offset_x in [-2.0, 0.0, 2.0] {
+        for offset_y in [-2.0, 0.0, 2.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    "!",
+                    excl_x + offset_x,
+                    center_y + offset_y,
+                    excl_font_size,
+                    excl_outline,
+                );
+            }
+        }
+    }
+    
+    // Draw exclamation point
+    draw_text(
+        "!",
+        excl_x,
+        center_y,
+        excl_font_size,
+        excl_color,
+    );
+    
+    // Subtitle message
+    if progress > 0.3 {
+        let subtitle = "4 LINES CLEARED!";
+        let subtitle_alpha = ((progress - 0.3) / 0.7) as f32 * alpha;
+        let subtitle_size = 24.0 * scale;
+        let subtitle_width = measure_text(subtitle, None, subtitle_size as u16, 1.0).width;
+        let subtitle_x = (WINDOW_WIDTH as f32 - subtitle_width) / 2.0;
+        let subtitle_y = center_y + font_size + 20.0;
+        
+        // Subtitle uses cycling rainbow colors too
+        let subtitle_hue = (time_offset * 0.7) % 6.0;
+        let subtitle_rainbow = hsv_to_rgb(subtitle_hue, 0.8, 1.0);
+        let subtitle_color = Color::new(
+            subtitle_rainbow.r,
+            subtitle_rainbow.g,
+            subtitle_rainbow.b,
+            subtitle_alpha,
+        );
+        
+        // Subtitle outline
+        let subtitle_outline = Color::new(0.0, 0.0, 0.0, subtitle_alpha * 0.8);
+        for offset_x in [-1.0, 0.0, 1.0] {
+            for offset_y in [-1.0, 0.0, 1.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        subtitle,
+                        subtitle_x + offset_x,
+                        subtitle_y + offset_y,
+                        subtitle_size,
+                        subtitle_outline,
+                    );
+                }
+            }
+        }
+        
+        draw_text(
+            subtitle,
+            subtitle_x,
+            subtitle_y,
+            subtitle_size,
+            subtitle_color,
+        );
     }
 }
 
