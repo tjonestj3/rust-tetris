@@ -696,7 +696,7 @@ impl Game {
                 // Analyze board and find smart positions
                 self.analyze_smart_positions();
                 self.ghost_block_blink_timer = 0.0;
-                log::info!("Ghost block placement mode activated with smart positioning");
+                log::info!("Ghost block placement mode activated - targeting strategic positions in rows with existing blocks");
                 
                 // Auto-fire if the best position only needs 1 block (instant TETRIS setup)
                 if let Some(&(x, y, blocks_needed)) = self.ghost_smart_positions.first() {
@@ -794,19 +794,24 @@ impl Game {
     pub fn analyze_smart_positions(&mut self) {
         let mut positions = Vec::new();
         
-        // Check each empty position on the board
+        // Check each empty position on the board, but only on rows that have existing blocks
         for y in BUFFER_HEIGHT..(BOARD_HEIGHT + BUFFER_HEIGHT) {
-            for x in 0..BOARD_WIDTH {
-                let x_i32 = x as i32;
-                let y_i32 = y as i32;
-                
-                // Only consider empty positions
-                if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
-                    if cell.is_empty() {
-                        // Calculate how many blocks are needed to complete this line
-                        let blocks_needed = self.calculate_blocks_needed_for_line(y);
-                        if blocks_needed > 0 {
-                            positions.push((x_i32, y_i32, blocks_needed));
+            // First, check if this row has any existing blocks
+            let row_has_blocks = self.row_has_existing_blocks(y);
+            
+            if row_has_blocks {
+                for x in 0..BOARD_WIDTH {
+                    let x_i32 = x as i32;
+                    let y_i32 = y as i32;
+                    
+                    // Only consider empty positions
+                    if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
+                        if cell.is_empty() {
+                            // Calculate how many blocks are needed to complete this line
+                            let blocks_needed = self.calculate_blocks_needed_for_line(y);
+                            if blocks_needed > 0 {
+                                positions.push((x_i32, y_i32, blocks_needed));
+                            }
                         }
                     }
                 }
@@ -845,7 +850,19 @@ impl Game {
             self.ghost_block_cursor = (x, y);
         }
         
-        log::info!("Found {} smart positions for ghost block placement", self.ghost_smart_positions.len());
+        log::info!("Found {} smart positions for strategic ghost block placement (only targeting rows with existing blocks)", self.ghost_smart_positions.len());
+    }
+    
+    /// Check if a row has any existing blocks (not completely empty)
+    fn row_has_existing_blocks(&self, line_y: usize) -> bool {
+        for x in 0..BOARD_WIDTH {
+            if let Some(cell) = self.board.get_cell(x as i32, line_y as i32) {
+                if cell.is_filled() {
+                    return true;
+                }
+            }
+        }
+        false
     }
     
     /// Calculate how many blocks are needed to complete a specific line
