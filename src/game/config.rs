@@ -29,6 +29,7 @@ pub const SOFT_DROP_INTERVAL: f64 = 0.05; // Time between soft drop steps when h
 pub const HORIZONTAL_MOVE_INTERVAL: f64 = 0.1; // Time between horizontal moves when held
 pub const LINE_CLEAR_ANIMATION_TIME: f64 = 0.5; // Duration of line clearing animation
 pub const TETRIS_CELEBRATION_TIME: f64 = 2.0; // Duration of TETRIS celebration message
+pub const GHOST_THROW_ANIMATION_TIME: f64 = 1.0; // Duration of ghost block throwing animation
 
 /// Scoring constants
 pub const SCORE_SINGLE_LINE: u32 = 100;

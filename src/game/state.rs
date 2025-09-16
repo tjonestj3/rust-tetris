@@ -73,6 +73,15 @@ pub struct Game {
     pub tetris_celebration_active: bool,
     /// TETRIS celebration timer for animation
     pub tetris_celebration_timer: f64,
+    
+    /// Ghost block throwing animation state
+    pub ghost_throw_active: bool,
+    /// Ghost block throwing animation timer
+    pub ghost_throw_timer: f64,
+    /// Target position for ghost block throw
+    pub ghost_throw_target: (i32, i32),
+    /// Starting position for throw animation
+    pub ghost_throw_start: (f32, f32),
 }
 
 impl Game {
@@ -109,6 +118,11 @@ impl Game {
             
             tetris_celebration_active: false,
             tetris_celebration_timer: 0.0,
+            
+            ghost_throw_active: false,
+            ghost_throw_timer: 0.0,
+            ghost_throw_target: (0, 0),
+            ghost_throw_start: (0.0, 0.0),
         };
         
         // Spawn the first piece
@@ -149,6 +163,14 @@ impl Game {
             if self.tetris_celebration_timer >= TETRIS_CELEBRATION_TIME {
                 self.tetris_celebration_active = false;
                 self.tetris_celebration_timer = 0.0;
+            }
+        }
+        
+        // Update ghost throw animation timer
+        if self.ghost_throw_active {
+            self.ghost_throw_timer += delta_time;
+            if self.ghost_throw_timer >= GHOST_THROW_ANIMATION_TIME {
+                self.finish_ghost_throw();
             }
         }
         
@@ -683,26 +705,16 @@ impl Game {
         None
     }
     
-    /// Place a ghost block at the current cursor position
+    /// Place a ghost block at the current cursor position (with throwing animation)
     pub fn place_ghost_block(&mut self) -> bool {
-        if self.ghost_block_placement_mode && self.ghost_blocks_available > 0 {
+        if self.ghost_block_placement_mode && self.ghost_blocks_available > 0 && !self.ghost_throw_active {
             let (x, y) = self.ghost_block_cursor;
             
             // Check if position is valid (empty)
             if let Some(cell) = self.board.get_cell(x, y) {
                 if cell.is_empty() {
-                    // Place the ghost block
-                    self.board.set_cell(x, y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0))); // Light blue ghost block
-                    self.ghost_blocks_available -= 1;
-                    self.ghost_block_placement_mode = false;
-                    
-                    // Check if this placement creates any complete lines
-                    let complete_lines = self.board.find_complete_lines();
-                    if !complete_lines.is_empty() {
-                        self.start_line_clear_animation(complete_lines);
-                    }
-                    
-                    log::info!("Ghost block placed at ({}, {}). Remaining: {}", x, y, self.ghost_blocks_available);
+                    // Start throwing animation instead of instant placement
+                    self.start_ghost_throw(x, y);
                     return true;
                 }
             }
@@ -797,6 +809,62 @@ impl Game {
             (self.tetris_celebration_timer / TETRIS_CELEBRATION_TIME).min(1.0)
         } else {
             0.0
+        }
+    }
+    
+    /// Start ghost block throwing animation
+    fn start_ghost_throw(&mut self, target_x: i32, target_y: i32) {
+        // Calculate starting position (off-screen or from a corner)
+        let start_x = BOARD_OFFSET_X - 100.0; // Start from left side off-screen
+        let start_y = BOARD_OFFSET_Y + 50.0;  // Slightly below board top
+        
+        self.ghost_throw_active = true;
+        self.ghost_throw_timer = 0.0;
+        self.ghost_throw_target = (target_x, target_y);
+        self.ghost_throw_start = (start_x, start_y);
+        self.ghost_block_placement_mode = false; // Exit placement mode
+        
+        log::info!("Starting ghost block throw animation to ({}, {})", target_x, target_y);
+    }
+    
+    /// Finish ghost block throwing animation and place the block
+    fn finish_ghost_throw(&mut self) {
+        let (target_x, target_y) = self.ghost_throw_target;
+        
+        // Actually place the block now
+        self.board.set_cell(target_x, target_y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0)));
+        self.ghost_blocks_available -= 1;
+        
+        // Check if this placement creates any complete lines
+        let complete_lines = self.board.find_complete_lines();
+        if !complete_lines.is_empty() {
+            self.start_line_clear_animation(complete_lines);
+        }
+        
+        // Reset animation state
+        self.ghost_throw_active = false;
+        self.ghost_throw_timer = 0.0;
+        
+        log::info!("Ghost block thrown and placed at ({}, {}). Remaining: {}", 
+                  target_x, target_y, self.ghost_blocks_available);
+    }
+    
+    /// Check if ghost throw animation is currently active
+    pub fn is_ghost_throw_active(&self) -> bool {
+        self.ghost_throw_active
+    }
+    
+    /// Get current throw animation progress and positions
+    pub fn get_ghost_throw_info(&self) -> Option<(f64, (f32, f32), (f32, f32))> {
+        if self.ghost_throw_active {
+            let progress = (self.ghost_throw_timer / GHOST_THROW_ANIMATION_TIME).min(1.0);
+            let target_screen = (
+                BOARD_OFFSET_X + (self.ghost_throw_target.0 as f32 * CELL_SIZE) + CELL_SIZE / 2.0,
+                BOARD_OFFSET_Y + ((self.ghost_throw_target.1 - BUFFER_HEIGHT as i32) as f32 * CELL_SIZE) + CELL_SIZE / 2.0
+            );
+            Some((progress, self.ghost_throw_start, target_screen))
+        } else {
+            None
         }
     }
 }

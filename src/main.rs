@@ -138,6 +138,11 @@ async fn main() {
         if game.is_tetris_celebration_active() {
             draw_tetris_celebration(&game);
         }
+        
+        // Draw ghost throw animation if active
+        if game.is_ghost_throw_active() {
+            draw_ghost_throw_animation(&game);
+        }
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -452,6 +457,239 @@ fn draw_ghost_block_cursor(game: &Game) {
             CELL_SIZE - 12.0,
             Color::new(1.0, 1.0, 1.0, 0.15),
         );
+    }
+}
+
+/// Draw ghost block throwing animation with character and projectile
+fn draw_ghost_throw_animation(game: &Game) {
+    if let Some((progress, start_pos, target_pos)) = game.get_ghost_throw_info() {
+        // Animation phases
+        let throw_start = 0.0;
+        let throw_peak = 0.3;     // Character throwing at 30%
+        let block_flight = 0.8;   // Block reaches target at 80%
+        let impact_end = 1.0;     // Impact effects end at 100%
+        
+        // Draw throwing character (simple stick figure)
+        let char_x = start_pos.0;
+        let char_y = start_pos.1;
+        
+        if progress <= throw_peak {
+            // Pre-throw and throwing animation
+            let throw_progress = (progress / throw_peak) as f32;
+            draw_stick_figure_throwing(char_x, char_y, throw_progress);
+        } else {
+            // Post-throw pose
+            draw_stick_figure_thrown(char_x, char_y);
+        }
+        
+        // Draw flying block
+        if progress >= throw_peak && progress <= block_flight {
+            let flight_progress = ((progress - throw_peak) / (block_flight - throw_peak)) as f32;
+            
+            // Calculate parabolic trajectory
+            let start_x = start_pos.0 + 30.0; // Offset from character's hand
+            let start_y = start_pos.1 - 10.0;
+            let end_x = target_pos.0;
+            let end_y = target_pos.1;
+            
+            // Parabolic motion
+            let current_x = start_x + (end_x - start_x) * flight_progress;
+            let peak_height = 60.0; // Height of arc
+            let arc_progress = flight_progress * (1.0 - flight_progress) * 4.0; // Peaks at 0.5 progress
+            let current_y = start_y + (end_y - start_y) * flight_progress - peak_height * arc_progress;
+            
+            // Draw spinning block with trail
+            let rotation = flight_progress * 6.28 * 3.0; // 3 full rotations
+            draw_spinning_ghost_block(current_x, current_y, rotation, flight_progress);
+            
+            // Draw motion trail
+            draw_block_trail(start_x, start_y, current_x, current_y, flight_progress);
+        }
+        
+        // Draw impact effects
+        if progress >= block_flight {
+            let impact_progress = ((progress - block_flight) / (impact_end - block_flight)) as f32;
+            draw_impact_effects(target_pos.0, target_pos.1, impact_progress);
+        }
+    }
+}
+
+/// Draw stick figure in throwing pose
+fn draw_stick_figure_throwing(x: f32, y: f32, progress: f32) {
+    let color = Color::new(1.0, 1.0, 0.8, 0.9); // Cream colored figure
+    let line_width = 3.0;
+    
+    // Animate throwing motion
+    let arm_angle = progress * 1.5; // Arm swings back then forward
+    let body_lean = progress * 0.3;   // Body leans into throw
+    
+    // Head
+    draw_circle(x + 5.0, y - 15.0, 6.0, color);
+    
+    // Body (leans forward with throw)
+    let body_end_x = x + body_lean * 15.0;
+    let body_end_y = y + 20.0;
+    draw_line(x, y, body_end_x, body_end_y, line_width, color);
+    
+    // Arms - throwing arm
+    let arm_x = body_end_x + arm_angle.cos() * 20.0;
+    let arm_y = body_end_y - 10.0 + arm_angle.sin() * 15.0;
+    draw_line(body_end_x, body_end_y - 5.0, arm_x, arm_y, line_width, color);
+    
+    // Other arm for balance
+    let balance_x = body_end_x - 15.0;
+    let balance_y = body_end_y - 5.0;
+    draw_line(body_end_x, body_end_y - 5.0, balance_x, balance_y, line_width, color);
+    
+    // Legs (in throwing stance)
+    let leg1_x = body_end_x - 10.0;
+    let leg1_y = body_end_y + 25.0;
+    let leg2_x = body_end_x + 10.0;
+    let leg2_y = body_end_y + 25.0;
+    
+    draw_line(body_end_x, body_end_y, leg1_x, leg1_y, line_width, color);
+    draw_line(body_end_x, body_end_y, leg2_x, leg2_y, line_width, color);
+}
+
+/// Draw stick figure in post-throw pose
+fn draw_stick_figure_thrown(x: f32, y: f32) {
+    let color = Color::new(1.0, 1.0, 0.8, 0.7); // Slightly faded
+    let line_width = 3.0;
+    
+    // Head
+    draw_circle(x + 15.0, y - 10.0, 6.0, color);
+    
+    // Body (leaning forward after throw)
+    draw_line(x, y, x + 20.0, y + 25.0, line_width, color);
+    
+    // Arms - follow-through pose
+    draw_line(x + 20.0, y + 15.0, x + 35.0, y + 5.0, line_width, color);  // Throwing arm extended
+    draw_line(x + 20.0, y + 15.0, x + 5.0, y + 10.0, line_width, color);   // Balance arm
+    
+    // Legs
+    draw_line(x + 20.0, y + 25.0, x + 5.0, y + 50.0, line_width, color);
+    draw_line(x + 20.0, y + 25.0, x + 30.0, y + 50.0, line_width, color);
+}
+
+/// Draw spinning ghost block projectile
+fn draw_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
+    let size = 16.0;
+    let half_size = size / 2.0;
+    
+    // Calculate rotated corners
+    let cos_r = rotation.cos();
+    let sin_r = rotation.sin();
+    
+    let corners = [
+        (-half_size, -half_size),
+        (half_size, -half_size),
+        (half_size, half_size),
+        (-half_size, half_size),
+    ];
+    
+    let rotated_corners: Vec<(f32, f32)> = corners.iter()
+        .map(|(px, py)| {
+            let rx = px * cos_r - py * sin_r;
+            let ry = px * sin_r + py * cos_r;
+            (x + rx, y + ry)
+        })
+        .collect();
+    
+    // Draw spinning block with glow
+    let alpha = 1.0 - progress * 0.3; // Slightly fade during flight
+    let block_color = Color::new(0.8, 0.8, 1.0, alpha);
+    let glow_color = Color::new(0.8, 0.8, 1.0, alpha * 0.4);
+    
+    // Draw glow
+    draw_circle(x, y, size, glow_color);
+    
+    // Draw block (simple rectangle approximation)
+    draw_rectangle(
+        x - half_size,
+        y - half_size,
+        size,
+        size,
+        block_color,
+    );
+    
+    // Add sparkle effects
+    for i in 0..4 {
+        let sparkle_angle = rotation + (i as f32 * 1.57); // π/2 apart
+        let sparkle_x = x + sparkle_angle.cos() * (half_size + 5.0);
+        let sparkle_y = y + sparkle_angle.sin() * (half_size + 5.0);
+        
+        draw_circle(sparkle_x, sparkle_y, 2.0, Color::new(1.0, 1.0, 1.0, alpha * 0.8));
+    }
+}
+
+/// Draw motion trail behind the flying block
+fn draw_block_trail(start_x: f32, start_y: f32, current_x: f32, current_y: f32, progress: f32) {
+    let trail_segments = 8;
+    
+    for i in 0..trail_segments {
+        let segment_progress = i as f32 / trail_segments as f32;
+        let trail_progress = progress - segment_progress * 0.3;
+        
+        if trail_progress > 0.0 {
+            let seg_x = start_x + (current_x - start_x) * trail_progress;
+            let seg_y = start_y + (current_y - start_y) * trail_progress;
+            
+            let alpha = (1.0 - segment_progress) * 0.5;
+            let size = 8.0 * (1.0 - segment_progress * 0.7);
+            
+            draw_circle(
+                seg_x, 
+                seg_y, 
+                size, 
+                Color::new(0.8, 0.8, 1.0, alpha)
+            );
+        }
+    }
+}
+
+/// Draw impact effects when block reaches target
+fn draw_impact_effects(x: f32, y: f32, progress: f32) {
+    if progress <= 1.0 {
+        // Expanding impact rings
+        for i in 0..3 {
+            let ring_delay = i as f32 * 0.2;
+            let ring_progress = (progress - ring_delay).max(0.0);
+            
+            if ring_progress > 0.0 {
+                let radius = ring_progress * 30.0;
+                let alpha = (1.0 - ring_progress) * 0.6;
+                
+                draw_circle_lines(
+                    x, y, radius, 3.0,
+                    Color::new(0.8, 0.8, 1.0, alpha)
+                );
+            }
+        }
+        
+        // Particle burst
+        let particle_count = 12;
+        for i in 0..particle_count {
+            let angle = (i as f32 / particle_count as f32) * 6.28;
+            let distance = progress * 25.0;
+            let particle_x = x + angle.cos() * distance;
+            let particle_y = y + angle.sin() * distance;
+            
+            let alpha = (1.0 - progress) * 0.8;
+            let size = 3.0 * (1.0 - progress * 0.5);
+            
+            draw_circle(
+                particle_x, 
+                particle_y, 
+                size,
+                Color::new(1.0, 1.0, 0.8, alpha)
+            );
+        }
+        
+        // Central flash
+        if progress <= 0.3 {
+            let flash_alpha = (1.0 - progress / 0.3) * 0.8;
+            draw_circle(x, y, 20.0, Color::new(1.0, 1.0, 1.0, flash_alpha));
+        }
     }
 }
 
