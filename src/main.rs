@@ -342,32 +342,85 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
             let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
             let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
             
-            // Get base color and make it translucent
             let base_color = ghost_piece.color();
-            let ghost_color = Color::new(
+            
+            // Enhanced ghost piece visibility:
+            // 1. Brighter, thicker outer border for better contrast
+            let outer_border_color = Color::new(1.0, 1.0, 1.0, 0.8); // Bright white border
+            draw_rectangle_lines(
+                cell_x + 1.0,
+                cell_y + 1.0,
+                CELL_SIZE - 2.0,
+                CELL_SIZE - 2.0,
+                3.0, // Thicker border
+                outer_border_color,
+            );
+            
+            // 2. Colored inner border using piece color with higher alpha
+            let inner_border_color = Color::new(
                 base_color.r,
                 base_color.g,
                 base_color.b,
-                0.3, // Make it quite transparent
+                0.6, // More visible than before
+            );
+            draw_rectangle_lines(
+                cell_x + 3.0,
+                cell_y + 3.0,
+                CELL_SIZE - 6.0,
+                CELL_SIZE - 6.0,
+                2.0,
+                inner_border_color,
             );
             
-            // Draw ghost cell with just a border outline
-            draw_rectangle_lines(
+            // 3. Subtle but more visible fill with pattern
+            let fill_color = Color::new(
+                (base_color.r + 0.3).min(1.0), // Brighten the fill
+                (base_color.g + 0.3).min(1.0),
+                (base_color.b + 0.3).min(1.0),
+                0.2, // Doubled the alpha from 0.1 to 0.2
+            );
+            draw_rectangle(
+                cell_x + 5.0,
+                cell_y + 5.0,
+                CELL_SIZE - 10.0,
+                CELL_SIZE - 10.0,
+                fill_color,
+            );
+            
+            // 4. Add small corner dots for extra visibility
+            let dot_color = Color::new(1.0, 1.0, 1.0, 0.7);
+            let dot_size = 2.0;
+            // Top-left corner dot
+            draw_rectangle(
                 cell_x + 2.0,
                 cell_y + 2.0,
-                CELL_SIZE - 4.0,
-                CELL_SIZE - 4.0,
-                2.0,
-                ghost_color,
+                dot_size,
+                dot_size,
+                dot_color,
             );
-            
-            // Add subtle fill for better visibility
+            // Top-right corner dot
             draw_rectangle(
-                cell_x + 4.0,
-                cell_y + 4.0,
-                CELL_SIZE - 8.0,
-                CELL_SIZE - 8.0,
-                Color::new(base_color.r, base_color.g, base_color.b, 0.1),
+                cell_x + CELL_SIZE - 4.0,
+                cell_y + 2.0,
+                dot_size,
+                dot_size,
+                dot_color,
+            );
+            // Bottom-left corner dot
+            draw_rectangle(
+                cell_x + 2.0,
+                cell_y + CELL_SIZE - 4.0,
+                dot_size,
+                dot_size,
+                dot_color,
+            );
+            // Bottom-right corner dot
+            draw_rectangle(
+                cell_x + CELL_SIZE - 4.0,
+                cell_y + CELL_SIZE - 4.0,
+                dot_size,
+                dot_size,
+                dot_color,
             );
         }
     }
