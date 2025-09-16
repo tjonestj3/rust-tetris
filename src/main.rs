@@ -514,61 +514,219 @@ fn draw_ghost_throw_animation(game: &Game) {
     }
 }
 
-/// Draw stick figure in throwing pose
+/// Draw magical mage in spell-casting pose
 fn draw_stick_figure_throwing(x: f32, y: f32, progress: f32) {
-    let color = Color::new(1.0, 1.0, 0.8, 0.9); // Cream colored figure
+    let skin_color = Color::new(0.95, 0.87, 0.73, 0.9); // Warm skin tone
+    let robe_color = Color::new(0.2, 0.1, 0.6, 0.9);   // Deep purple robe
+    let staff_color = Color::new(0.6, 0.4, 0.2, 0.9);  // Brown wooden staff
+    let magic_color = Color::new(0.8, 0.9, 1.0, 0.8);  // Bright magical energy
     let line_width = 3.0;
     
-    // Animate throwing motion
-    let arm_angle = progress * 1.5; // Arm swings back then forward
-    let body_lean = progress * 0.3;   // Body leans into throw
+    // Animate spell-casting motion
+    let spell_progress = progress * 1.8; // More dramatic casting motion
+    let body_lean = progress * 0.2;      // Slight forward lean
+    let magic_intensity = (progress * 3.14).sin().max(0.0); // Pulsing magic
     
-    // Head
-    draw_circle(x + 5.0, y - 15.0, 6.0, color);
+    // Draw flowing robe (wider base)
+    let robe_width = 25.0 + progress * 5.0; // Robe billows during cast
+    let body_center_x = x + body_lean * 10.0;
+    let body_center_y = y + 15.0;
     
-    // Body (leans forward with throw)
-    let body_end_x = x + body_lean * 15.0;
-    let body_end_y = y + 20.0;
-    draw_line(x, y, body_end_x, body_end_y, line_width, color);
+    // Robe body (triangle shape for flowing effect)
+    let robe_points = [
+        (body_center_x - robe_width / 2.0, body_center_y + 40.0), // Bottom left
+        (body_center_x + robe_width / 2.0, body_center_y + 40.0), // Bottom right
+        (body_center_x, body_center_y - 10.0),                     // Top center
+    ];
     
-    // Arms - throwing arm
-    let arm_x = body_end_x + arm_angle.cos() * 20.0;
-    let arm_y = body_end_y - 10.0 + arm_angle.sin() * 15.0;
-    draw_line(body_end_x, body_end_y - 5.0, arm_x, arm_y, line_width, color);
+    // Draw robe fill
+    for i in 0..3 {
+        let p1 = robe_points[i];
+        let p2 = robe_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 8.0, robe_color);
+    }
     
-    // Other arm for balance
-    let balance_x = body_end_x - 15.0;
-    let balance_y = body_end_y - 5.0;
-    draw_line(body_end_x, body_end_y - 5.0, balance_x, balance_y, line_width, color);
+    // Head with pointed wizard hat
+    draw_circle(body_center_x, y - 8.0, 7.0, skin_color);
     
-    // Legs (in throwing stance)
-    let leg1_x = body_end_x - 10.0;
-    let leg1_y = body_end_y + 25.0;
-    let leg2_x = body_end_x + 10.0;
-    let leg2_y = body_end_y + 25.0;
+    // Wizard hat (triangle)
+    let hat_points = [
+        (body_center_x - 8.0, y - 15.0),  // Left base
+        (body_center_x + 8.0, y - 15.0),  // Right base  
+        (body_center_x + 3.0, y - 35.0),  // Pointed tip (slightly off-center)
+    ];
     
-    draw_line(body_end_x, body_end_y, leg1_x, leg1_y, line_width, color);
-    draw_line(body_end_x, body_end_y, leg2_x, leg2_y, line_width, color);
+    for i in 0..3 {
+        let p1 = hat_points[i];
+        let p2 = hat_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 4.0, robe_color);
+    }
+    
+    // Magical staff in non-casting hand
+    let staff_x = body_center_x - 20.0;
+    let staff_y1 = body_center_y - 5.0;
+    let staff_y2 = staff_y1 + 35.0;
+    
+    // Staff shaft
+    draw_line(staff_x, staff_y1, staff_x, staff_y2, 4.0, staff_color);
+    
+    // Magical orb at top of staff
+    draw_circle(staff_x, staff_y1 - 8.0, 5.0, magic_color);
+    
+    // Pulsing magic aura around orb
+    if magic_intensity > 0.3 {
+        let aura_size = 8.0 + magic_intensity * 4.0;
+        draw_circle_lines(staff_x, staff_y1 - 8.0, aura_size, 2.0, 
+                         Color::new(magic_color.r, magic_color.g, magic_color.b, magic_intensity * 0.6));
+    }
+    
+    // Casting arm (extended forward with magical energy)
+    let cast_arm_x = body_center_x + spell_progress.cos() * 25.0;
+    let cast_arm_y = body_center_y - 5.0 + spell_progress.sin() * 12.0;
+    
+    // Arm to casting position
+    draw_line(body_center_x + 5.0, body_center_y - 5.0, cast_arm_x, cast_arm_y, line_width, skin_color);
+    
+    // Magical energy swirling around casting hand
+    if progress > 0.2 {
+        let swirl_count = 5;
+        for i in 0..swirl_count {
+            let swirl_angle = (progress * 6.28 * 2.0) + (i as f32 * 1.256); // Different phase for each swirl
+            let swirl_radius = 8.0 + (i as f32 * 2.0);
+            let swirl_x = cast_arm_x + swirl_angle.cos() * swirl_radius;
+            let swirl_y = cast_arm_y + swirl_angle.sin() * swirl_radius * 0.5;
+            
+            let swirl_alpha = magic_intensity * (1.0 - i as f32 * 0.2);
+            draw_circle(swirl_x, swirl_y, 2.0, Color::new(magic_color.r, magic_color.g, magic_color.b, swirl_alpha));
+        }
+    }
+    
+    // Magical runes floating around mage
+    if progress > 0.4 {
+        let rune_positions = [
+            (body_center_x - 30.0, body_center_y - 20.0),
+            (body_center_x + 25.0, body_center_y - 15.0),
+            (body_center_x - 15.0, body_center_y - 30.0),
+        ];
+        
+        for (i, &(rune_x, rune_y)) in rune_positions.iter().enumerate() {
+            let rune_progress = (progress - 0.4) * 2.0; // Start appearing at 40% progress
+            let float_offset = ((progress * 4.0 + i as f64).sin() * 3.0) as f32;
+            let rune_alpha = (rune_progress * magic_intensity).min(0.8);
+            
+            if rune_alpha > 0.1 {
+                // Simple rune symbols (just geometric shapes)
+                match i {
+                    0 => { // Circle rune
+                        draw_circle_lines(rune_x, rune_y + float_offset, 4.0, 2.0, 
+                                        Color::new(1.0, 0.8, 0.2, rune_alpha));
+                    },
+                    1 => { // Triangle rune
+                        let size = 4.0;
+                        draw_line(rune_x - size, rune_y + size + float_offset, 
+                                rune_x + size, rune_y + size + float_offset, 2.0, 
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                        draw_line(rune_x + size, rune_y + size + float_offset,
+                                rune_x, rune_y - size + float_offset, 2.0,
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                        draw_line(rune_x, rune_y - size + float_offset,
+                                rune_x - size, rune_y + size + float_offset, 2.0,
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                    },
+                    _ => { // Diamond rune
+                        let size = 3.0;
+                        draw_line(rune_x, rune_y - size + float_offset,
+                                rune_x + size, rune_y + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x + size, rune_y + float_offset,
+                                rune_x, rune_y + size + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x, rune_y + size + float_offset,
+                                rune_x - size, rune_y + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x - size, rune_y + float_offset,
+                                rune_x, rune_y - size + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                    }
+                }
+            }
+        }
+    }
 }
 
-/// Draw stick figure in post-throw pose
+/// Draw mage completing the spell (post-cast pose)
 fn draw_stick_figure_thrown(x: f32, y: f32) {
-    let color = Color::new(1.0, 1.0, 0.8, 0.7); // Slightly faded
-    let line_width = 3.0;
+    let skin_color = Color::new(0.95, 0.87, 0.73, 0.7); // Slightly faded warm skin
+    let robe_color = Color::new(0.2, 0.1, 0.6, 0.7);   // Faded deep purple robe
+    let staff_color = Color::new(0.6, 0.4, 0.2, 0.7);  // Faded brown wooden staff
+    let magic_color = Color::new(0.8, 0.9, 1.0, 0.5);  // Faded magical energy
     
-    // Head
-    draw_circle(x + 15.0, y - 10.0, 6.0, color);
+    // Mage in post-spell completion pose (more relaxed)
+    let body_center_x = x + 15.0;
+    let body_center_y = y + 20.0;
     
-    // Body (leaning forward after throw)
-    draw_line(x, y, x + 20.0, y + 25.0, line_width, color);
+    // Robe (slightly more relaxed shape)
+    let robe_width = 22.0;
+    let robe_points = [
+        (body_center_x - robe_width / 2.0, body_center_y + 35.0), // Bottom left
+        (body_center_x + robe_width / 2.0, body_center_y + 35.0), // Bottom right
+        (body_center_x, body_center_y - 5.0),                      // Top center
+    ];
     
-    // Arms - follow-through pose
-    draw_line(x + 20.0, y + 15.0, x + 35.0, y + 5.0, line_width, color);  // Throwing arm extended
-    draw_line(x + 20.0, y + 15.0, x + 5.0, y + 10.0, line_width, color);   // Balance arm
+    // Draw robe outline
+    for i in 0..3 {
+        let p1 = robe_points[i];
+        let p2 = robe_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 6.0, robe_color);
+    }
     
-    // Legs
-    draw_line(x + 20.0, y + 25.0, x + 5.0, y + 50.0, line_width, color);
-    draw_line(x + 20.0, y + 25.0, x + 30.0, y + 50.0, line_width, color);
+    // Head with wizard hat
+    draw_circle(body_center_x, y - 5.0, 6.0, skin_color);
+    
+    // Wizard hat (relaxed position)
+    let hat_points = [
+        (body_center_x - 7.0, y - 12.0),  // Left base
+        (body_center_x + 7.0, y - 12.0),  // Right base  
+        (body_center_x + 2.0, y - 28.0),  // Pointed tip
+    ];
+    
+    for i in 0..3 {
+        let p1 = hat_points[i];
+        let p2 = hat_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 3.0, robe_color);
+    }
+    
+    // Staff in left hand (still held)
+    let staff_x = body_center_x - 18.0;
+    let staff_y1 = body_center_y;
+    let staff_y2 = staff_y1 + 30.0;
+    
+    // Staff shaft
+    draw_line(staff_x, staff_y1, staff_x, staff_y2, 3.0, staff_color);
+    
+    // Dimmed magical orb (spell complete)
+    draw_circle(staff_x, staff_y1 - 6.0, 4.0, Color::new(magic_color.r, magic_color.g, magic_color.b, 0.3));
+    
+    // Extended casting arm (follow-through)
+    let cast_arm_x = body_center_x + 25.0;
+    let cast_arm_y = body_center_y;
+    
+    draw_line(body_center_x + 3.0, body_center_y, cast_arm_x, cast_arm_y, 2.5, skin_color);
+    
+    // Residual magical sparkles fading away
+    let sparkle_positions = [
+        (cast_arm_x + 5.0, cast_arm_y - 3.0),
+        (cast_arm_x + 8.0, cast_arm_y + 2.0),
+        (cast_arm_x + 3.0, cast_arm_y + 5.0),
+    ];
+    
+    for &(spark_x, spark_y) in &sparkle_positions {
+        draw_circle(spark_x, spark_y, 1.5, Color::new(1.0, 1.0, 0.8, 0.4));
+    }
+    
+    // Faint magical aura still emanating (spell aftermath)
+    draw_circle_lines(body_center_x, body_center_y, 25.0, 1.0, 
+                     Color::new(magic_color.r, magic_color.g, magic_color.b, 0.2));
 }
 
 /// Draw spinning ghost block projectile

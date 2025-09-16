@@ -307,7 +307,7 @@ impl Game {
             piece.move_by(dx, dy);
             
             if self.is_piece_valid(&piece) {
-                self.current_piece = Some(piece);
+                self.current_piece = Some(piece.clone());
                 
                 // Only reset lock delay for horizontal movement and rotations,
                 // and only if the piece can still move down after the movement
@@ -643,6 +643,15 @@ impl Game {
                 self.analyze_smart_positions();
                 self.ghost_block_blink_timer = 0.0;
                 log::info!("Ghost block placement mode activated with smart positioning");
+                
+                // Auto-fire if the best position only needs 1 block (instant TETRIS setup)
+                if let Some(&(x, y, blocks_needed)) = self.ghost_smart_positions.first() {
+                    if blocks_needed == 1 {
+                        log::info!("Auto-firing ghost block for optimal 1-block position at ({}, {})", x, y);
+                        self.start_ghost_throw(x, y);
+                        return; // Exit placement mode immediately
+                    }
+                }
             } else {
                 log::info!("Ghost block placement mode deactivated");
                 self.ghost_smart_positions.clear();
