@@ -201,32 +201,97 @@ async fn main() {
     }
 }
 
-/// Create a procedural chess-like background
+/// Create a magical retro gaming background with Tetris theme
 fn create_chess_background() -> Image {
     let width = WINDOW_WIDTH as u16;
     let height = WINDOW_HEIGHT as u16;
-    let mut image = Image::gen_image_color(width, height, Color::new(0.1, 0.05, 0.0, 1.0));
+    let mut image = Image::gen_image_color(width, height, Color::new(0.02, 0.02, 0.08, 1.0));
     
-    // Create a fiery chess pattern
+    let center_x = width as f32 / 2.0;
+    let center_y = height as f32 / 2.0;
+    
+    // Create magical background with multiple effects
     for y in 0..height {
         for x in 0..width {
-            let chess_x = (x / 64) % 2;
-            let chess_y = (y / 64) % 2;
+            let fx = x as f32;
+            let fy = y as f32;
             
-            let base_color = if (chess_x + chess_y) % 2 == 0 {
-                Color::new(0.15, 0.08, 0.02, 1.0) // Dark brown
-            } else {
-                Color::new(0.25, 0.15, 0.05, 1.0) // Light brown
-            };
+            // Distance from center for radial effects
+            let distance = ((fx - center_x).powi(2) + (fy - center_y).powi(2)).sqrt();
+            let max_distance = (center_x.powi(2) + center_y.powi(2)).sqrt();
+            let normalized_distance = distance / max_distance;
             
-            // Add some fire-like gradient
-            let gradient = (y as f32 / height as f32) * 0.3;
-            let final_color = Color::new(
-                (base_color.r + gradient * 0.8).min(1.0),
-                (base_color.g + gradient * 0.4).min(1.0),
-                (base_color.b + gradient * 0.1).min(1.0),
-                1.0,
-            );
+            // Create layered magical effects
+            let mut final_color = Color::new(0.02, 0.02, 0.08, 1.0); // Deep space blue base
+            
+            // 1. Radial gradient from center (magical aura)
+            let radial_intensity = (1.0 - normalized_distance * 0.7).max(0.0);
+            final_color.r = (final_color.r + radial_intensity * 0.1).min(1.0);
+            final_color.g = (final_color.g + radial_intensity * 0.05).min(1.0);
+            final_color.b = (final_color.b + radial_intensity * 0.15).min(1.0);
+            
+            // 2. Animated wave patterns (simulating time with position)
+            let wave1 = ((fx * 0.02 + fy * 0.01).sin() * 0.5 + 0.5) * 0.08;
+            let wave2 = ((fx * 0.015 - fy * 0.02).cos() * 0.5 + 0.5) * 0.06;
+            final_color.r = (final_color.r + wave1 * 0.3).min(1.0);
+            final_color.g = (final_color.g + wave2 * 0.2).min(1.0);
+            final_color.b = (final_color.b + (wave1 + wave2) * 0.4).min(1.0);
+            
+            // 3. Circuit-like grid pattern (retro gaming aesthetic)
+            let grid_size = 40.0;
+            let grid_x = (fx / grid_size) % 1.0;
+            let grid_y = (fy / grid_size) % 1.0;
+            
+            // Create grid lines with glow
+            if grid_x < 0.05 || grid_x > 0.95 || grid_y < 0.05 || grid_y > 0.95 {
+                let grid_glow = 0.15;
+                final_color.r = (final_color.r + grid_glow * 0.2).min(1.0);
+                final_color.g = (final_color.g + grid_glow * 0.6).min(1.0);
+                final_color.b = (final_color.b + grid_glow * 1.0).min(1.0);
+            }
+            
+            // 4. Scattered "stars" or magical particles
+            let noise_factor = ((fx * 0.1).sin() * (fy * 0.1).cos() * 1000.0) % 1.0;
+            if noise_factor > 0.98 {
+                let star_brightness = (noise_factor - 0.98) * 50.0;
+                final_color.r = (final_color.r + star_brightness * 0.8).min(1.0);
+                final_color.g = (final_color.g + star_brightness * 0.9).min(1.0);
+                final_color.b = (final_color.b + star_brightness * 1.0).min(1.0);
+            }
+            
+            // 5. Subtle Tetris block pattern in the background
+            let block_size = 80.0;
+            let block_x = ((fx / block_size) % 1.0 * 4.0) as i32;
+            let block_y = ((fy / block_size) % 1.0 * 4.0) as i32;
+            
+            // Create subtle Tetris-like shapes
+            let tetris_shapes = [
+                // I-piece pattern
+                [1, 1, 1, 1],
+                // T-piece pattern  
+                [0, 1, 0, 0],
+                [1, 1, 1, 0],
+                [0, 1, 0, 0],
+            ];
+            
+            if block_y < 4 && block_x < 4 {
+                let shape_index = ((fx / 200.0) as usize + (fy / 200.0) as usize) % tetris_shapes.len();
+                if shape_index < tetris_shapes.len() && block_y < tetris_shapes.len() as i32 {
+                    let shape_line = tetris_shapes[shape_index];
+                    if block_x < shape_line.len() as i32 && shape_line[block_x as usize] == 1 {
+                        let tetris_glow = 0.05;
+                        final_color.r = (final_color.r + tetris_glow * 0.4).min(1.0);
+                        final_color.g = (final_color.g + tetris_glow * 0.2).min(1.0);
+                        final_color.b = (final_color.b + tetris_glow * 0.8).min(1.0);
+                    }
+                }
+            }
+            
+            // 6. Vertical gradient (darker at top, lighter at bottom)
+            let vertical_gradient = fy / height as f32;
+            final_color.r = (final_color.r + vertical_gradient * 0.03).min(1.0);
+            final_color.g = (final_color.g + vertical_gradient * 0.02).min(1.0);
+            final_color.b = (final_color.b + vertical_gradient * 0.05).min(1.0);
             
             image.set_pixel(x as u32, y as u32, final_color);
         }
@@ -1472,6 +1537,15 @@ fn detect_and_play_audio_events(
     was_clearing_lines: bool,
     prev_state: GameState,
 ) {
+    // Don't play any gameplay sounds during game over state to prevent spam
+    if game.state == GameState::GameOver {
+        // Only play game over sound when transitioning to game over
+        if prev_state == GameState::Playing {
+            audio_system.play_sound(SoundType::GameOver);
+        }
+        return; // Exit early to prevent other sounds during game over
+    }
+    
     // Line clearing sound (when lines start clearing)
     if !was_clearing_lines && game.is_clearing_lines() {
         audio_system.play_sound(SoundType::LineClear);
@@ -1485,11 +1559,6 @@ fn detect_and_play_audio_events(
     // Level up sound
     if game.level() > prev_level {
         audio_system.play_sound(SoundType::LevelComplete);
-    }
-    
-    // Game over sound
-    if prev_state == GameState::Playing && game.state == GameState::GameOver {
-        audio_system.play_sound(SoundType::GameOver);
     }
 }
 

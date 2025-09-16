@@ -1,1 +1,4 @@
 /target
+
+# Game save files (change frequently, don't track)
+tetris_save.json
