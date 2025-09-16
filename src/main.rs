@@ -42,11 +42,22 @@ async fn main() {
     // Start background music
     audio_system.start_background_music();
     
-    // Initialize game state
-    let mut game = Game::new();
+    // Check for existing save file and handle startup
+    let save_path = Game::default_save_path();
+    let mut game = if Game::save_file_exists(&save_path) {
+        // Show load/new game menu
+        show_startup_menu(&save_path).await
+    } else {
+        // No save file, start new game
+        Game::new()
+    };
+    
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
     let mut fps = 0.0;
+    let mut last_save_time = get_time();
+    let auto_save_interval = 30.0; // Auto-save every 30 seconds
+    let mut last_game_state_hash = 0u64; // Track game state changes for performance
     
     log::info!("Game initialized with first piece: {:?}", 
                game.current_piece.as_ref().map(|p| p.piece_type).unwrap_or(TetrominoType::T));
@@ -79,6 +90,23 @@ async fn main() {
         
         // Detect and play audio for game events
         detect_and_play_audio_events(&game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+        
+        // Auto-save periodically during gameplay (optimized with state change detection)
+        if game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
+            let current_hash = game.get_state_hash();
+            if current_hash != last_game_state_hash {
+                // Only save if game state has actually changed
+                if let Err(e) = game.save_to_file(&save_path) {
+                    log::warn!("Auto-save failed: {}", e);
+                } else {
+                    last_game_state_hash = current_hash;
+                    log::debug!("Auto-save completed (state changed)");
+                }
+            } else {
+                log::debug!("Auto-save skipped (no state change)");
+            }
+            last_save_time = current_time;
+        }
 
         // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
@@ -142,6 +170,13 @@ async fn main() {
         // Draw ghost throw animation if active
         if game.is_ghost_throw_active() {
             draw_ghost_throw_animation(&game);
+        }
+        
+        // Draw game state overlays
+        match game.state {
+            GameState::GameOver => draw_game_over_overlay(&game),
+            GameState::Paused => draw_pause_overlay(&game),
+            _ => {}, // No overlay for Playing or Menu
         }
 
         // Show FPS in debug mode
@@ -207,7 +242,36 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
         std::process::exit(0);
     }
     
-    // Only handle game input when playing
+    // Save game (S key) - available in any state
+    if is_key_pressed(KeyCode::S) && is_key_down(KeyCode::LeftControl) {
+        let save_path = Game::default_save_path();
+        match game.save_to_file(&save_path) {
+            Ok(_) => {
+                log::info!("Game saved manually");
+                audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+            },
+            Err(e) => {
+                log::warn!("Manual save failed: {}", e);
+            }
+        }
+        return;
+    }
+    
+    // Reset game (R key) - available in any state
+    if is_key_pressed(KeyCode::R) {
+        game.reset();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+        return;
+    }
+    
+    // Pause toggle (P key) - available when playing or paused
+    if is_key_pressed(KeyCode::P) && (game.state == GameState::Playing || game.state == GameState::Paused) {
+        game.toggle_pause();
+        audio_system.play_sound(SoundType::Pause);
+        return;
+    }
+    
+    // Only handle game controls when playing
     if game.state != GameState::Playing {
         return;
     }
@@ -289,18 +353,6 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
         if game.hold_piece() {
             audio_system.play_sound(SoundType::HoldPiece);
         }
-    }
-    
-    // Pause
-    if is_key_pressed(KeyCode::P) {
-        game.toggle_pause();
-        audio_system.play_sound(SoundType::Pause);
-    }
-    
-    // Reset game (R key)
-    if is_key_pressed(KeyCode::R) {
-        game.reset();
-        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
     }
 }
 
@@ -611,7 +663,7 @@ fn draw_stick_figure_throwing(x: f32, y: f32, progress: f32) {
         
         for (i, &(rune_x, rune_y)) in rune_positions.iter().enumerate() {
             let rune_progress = (progress - 0.4) * 2.0; // Start appearing at 40% progress
-            let float_offset = ((progress * 4.0 + i as f64).sin() * 3.0) as f32;
+            let float_offset = ((progress * 4.0 + i as f32).sin() * 3.0) as f32;
             let rune_alpha = (rune_progress * magic_intensity).min(0.8);
             
             if rune_alpha > 0.1 {
@@ -729,54 +781,96 @@ fn draw_stick_figure_thrown(x: f32, y: f32) {
                      Color::new(magic_color.r, magic_color.g, magic_color.b, 0.2));
 }
 
-/// Draw spinning ghost block projectile
+/// Draw spinning fireball projectile with magical flame effects
 fn draw_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
-    let size = 16.0;
-    let half_size = size / 2.0;
+    let base_size = 16.0;
+    let alpha = 1.0 - progress * 0.2; // Keep fireball bright during flight
+    let intensity = (rotation * 2.0).sin() * 0.3 + 0.7; // Pulsing intensity
     
-    // Calculate rotated corners
-    let cos_r = rotation.cos();
-    let sin_r = rotation.sin();
+    // Outer flame ring (orange-red)
+    let outer_size = base_size * 1.8 * intensity;
+    let outer_color = Color::new(1.0, 0.4, 0.1, alpha * 0.6);
+    draw_circle(x, y, outer_size, outer_color);
     
-    let corners = [
-        (-half_size, -half_size),
-        (half_size, -half_size),
-        (half_size, half_size),
-        (-half_size, half_size),
-    ];
+    // Middle flame layer (bright orange)
+    let mid_size = base_size * 1.3 * intensity;
+    let mid_color = Color::new(1.0, 0.6, 0.1, alpha * 0.8);
+    draw_circle(x, y, mid_size, mid_color);
     
-    let rotated_corners: Vec<(f32, f32)> = corners.iter()
-        .map(|(px, py)| {
-            let rx = px * cos_r - py * sin_r;
-            let ry = px * sin_r + py * cos_r;
-            (x + rx, y + ry)
-        })
-        .collect();
+    // Inner flame core (yellow-white)
+    let core_size = base_size * 0.8;
+    let core_color = Color::new(1.0, 0.9, 0.3, alpha);
+    draw_circle(x, y, core_size, core_color);
     
-    // Draw spinning block with glow
-    let alpha = 1.0 - progress * 0.3; // Slightly fade during flight
-    let block_color = Color::new(0.8, 0.8, 1.0, alpha);
-    let glow_color = Color::new(0.8, 0.8, 1.0, alpha * 0.4);
+    // Central blazing core (bright white-yellow)
+    let center_size = base_size * 0.4;
+    let center_color = Color::new(1.0, 1.0, 0.8, alpha);
+    draw_circle(x, y, center_size, center_color);
     
-    // Draw glow
-    draw_circle(x, y, size, glow_color);
-    
-    // Draw block (simple rectangle approximation)
-    draw_rectangle(
-        x - half_size,
-        y - half_size,
-        size,
-        size,
-        block_color,
-    );
-    
-    // Add sparkle effects
-    for i in 0..4 {
-        let sparkle_angle = rotation + (i as f32 * 1.57); // π/2 apart
-        let sparkle_x = x + sparkle_angle.cos() * (half_size + 5.0);
-        let sparkle_y = y + sparkle_angle.sin() * (half_size + 5.0);
+    // Flame particles swirling around
+    let particle_count = 8;
+    for i in 0..particle_count {
+        let angle = rotation * 3.0 + (i as f32 * 0.785); // Faster spinning particles
+        let distance = base_size * 1.2 + (angle * 1.5).sin() * 4.0; // Varying distance
+        let particle_x = x + angle.cos() * distance;
+        let particle_y = y + angle.sin() * distance;
         
-        draw_circle(sparkle_x, sparkle_y, 2.0, Color::new(1.0, 1.0, 1.0, alpha * 0.8));
+        // Particle size varies with position
+        let particle_size = 2.0 + (angle * 2.0).sin().abs() * 2.0;
+        
+        // Particle color transitions from red to yellow
+        let color_phase = (i as f32 / particle_count as f32);
+        let particle_color = Color::new(
+            1.0,
+            0.3 + color_phase * 0.6, // Red to yellow transition
+            0.1 + color_phase * 0.2, // Slight blue for orange effect
+            alpha * (0.5 + (angle).sin().abs() * 0.5),
+        );
+        
+        draw_circle(particle_x, particle_y, particle_size, particle_color);
+    }
+    
+    // Trailing flame wisps
+    let wisp_count = 6;
+    for i in 0..wisp_count {
+        let wisp_angle = rotation + (i as f32 * 1.047); // Different from particles
+        let wisp_distance = base_size * 2.0;
+        let trail_offset = -(i as f32) * 2.0; // Trail behind
+        
+        let wisp_x = x + wisp_angle.cos() * wisp_distance + trail_offset;
+        let wisp_y = y + wisp_angle.sin() * wisp_distance;
+        
+        let wisp_size = 3.0 - (i as f32 * 0.3); // Smaller as they trail
+        let wisp_alpha = alpha * (1.0 - i as f32 * 0.15); // Fade as they trail
+        
+        let wisp_color = Color::new(1.0, 0.5, 0.1, wisp_alpha * 0.4);
+        draw_circle(wisp_x, wisp_y, wisp_size, wisp_color);
+    }
+    
+    // Heat distortion effect (subtle rings)
+    for ring in 0..3 {
+        let ring_size = base_size * (1.5 + ring as f32 * 0.5) * intensity;
+        let ring_alpha = alpha * 0.1 * (1.0 - ring as f32 * 0.3);
+        let ring_color = Color::new(1.0, 0.8, 0.6, ring_alpha);
+        
+        draw_circle_lines(x, y, ring_size, 1.0, ring_color);
+    }
+    
+    // Magical sparkles around the fireball
+    let sparkle_count = 12;
+    for i in 0..sparkle_count {
+        let sparkle_angle = rotation * 2.0 + (i as f32 * 0.524); // Different rotation speed
+        let sparkle_distance = base_size * 2.5 + (sparkle_angle * 3.0).sin() * 8.0;
+        let sparkle_x = x + sparkle_angle.cos() * sparkle_distance;
+        let sparkle_y = y + sparkle_angle.sin() * sparkle_distance;
+        
+        // Twinkling effect
+        let twinkle = (rotation * 5.0 + i as f32).sin().abs();
+        if twinkle > 0.7 {
+            let sparkle_size = 1.5 + twinkle * 1.5;
+            let sparkle_color = Color::new(1.0, 1.0, 0.8, alpha * twinkle * 0.8);
+            draw_circle(sparkle_x, sparkle_y, sparkle_size, sparkle_color);
+        }
     }
 }
 
@@ -1525,6 +1619,7 @@ fn draw_enhanced_ui(game: &Game) {
         "SPACE - Hard Drop",
         "C - Hold Piece",
         "P - Pause / R - Reset",
+        "Ctrl+S - Save Game",
     ];
     
     let inst_x = 25.0; // Moderate padding from left edge
@@ -1677,6 +1772,286 @@ fn draw_enhanced_ui(game: &Game) {
                 strategy_color,
             );
         }
+    }
+}
+
+/// Draw Game Over overlay
+fn draw_game_over_overlay(game: &Game) {
+    // Semi-transparent dark overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+    
+    // Game Over message
+    let message = "GAME OVER";
+    let font_size = 60.0;
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 80.0;
+    
+    // Draw outline for better visibility
+    let outline_color = Color::new(0.0, 0.0, 0.0, 0.9);
+    for offset_x in [-3.0, 0.0, 3.0] {
+        for offset_y in [-3.0, 0.0, 3.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    message,
+                    center_x + offset_x,
+                    center_y + offset_y,
+                    font_size,
+                    outline_color,
+                );
+            }
+        }
+    }
+    
+    // Main text in bright red
+    draw_text(
+        message,
+        center_x,
+        center_y,
+        font_size,
+        Color::new(1.0, 0.2, 0.2, 1.0),
+    );
+    
+    // Final stats
+    let stats_lines = vec![
+        format!("Final Score: {}", game.score),
+        format!("Level Reached: {}", game.level()),
+        format!("Lines Cleared: {}", game.lines_cleared()),
+        format!("Time Played: {:.0}s", game.game_time),
+    ];
+    
+    let stats_y_start = center_y + 60.0;
+    for (i, stat) in stats_lines.iter().enumerate() {
+        let stat_width = measure_text(stat, None, 24, 1.0).width;
+        let stat_x = (WINDOW_WIDTH as f32 - stat_width) / 2.0;
+        let stat_y = stats_y_start + (i as f32 * 30.0);
+        
+        // Stat outline
+        for offset_x in [-1.0, 0.0, 1.0] {
+            for offset_y in [-1.0, 0.0, 1.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        stat,
+                        stat_x + offset_x,
+                        stat_y + offset_y,
+                        24.0,
+                        Color::new(0.0, 0.0, 0.0, 0.8),
+                    );
+                }
+            }
+        }
+        
+        draw_text(
+            stat,
+            stat_x,
+            stat_y,
+            24.0,
+            Color::new(1.0, 1.0, 0.8, 1.0),
+        );
+    }
+    
+    // Instructions
+    let instruction = "Press R to restart or ESC to quit";
+    let inst_width = measure_text(instruction, None, 20, 1.0).width;
+    let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
+    let inst_y = stats_y_start + 180.0;
+    
+    // Instruction outline
+    for offset_x in [-1.0, 0.0, 1.0] {
+        for offset_y in [-1.0, 0.0, 1.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    instruction,
+                    inst_x + offset_x,
+                    inst_y + offset_y,
+                    20.0,
+                    Color::new(0.0, 0.0, 0.0, 0.8),
+                );
+            }
+        }
+    }
+    
+    draw_text(
+        instruction,
+        inst_x,
+        inst_y,
+        20.0,
+        Color::new(0.8, 0.8, 0.9, 1.0),
+    );
+}
+
+/// Draw Pause overlay
+fn draw_pause_overlay(_game: &Game) {
+    // Semi-transparent dark overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.5),
+    );
+    
+    // Pause message
+    let message = "PAUSED";
+    let font_size = 50.0;
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 40.0;
+    
+    // Draw outline for better visibility
+    let outline_color = Color::new(0.0, 0.0, 0.0, 0.9);
+    for offset_x in [-2.0, 0.0, 2.0] {
+        for offset_y in [-2.0, 0.0, 2.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    message,
+                    center_x + offset_x,
+                    center_y + offset_y,
+                    font_size,
+                    outline_color,
+                );
+            }
+        }
+    }
+    
+    // Main text in bright cyan
+    draw_text(
+        message,
+        center_x,
+        center_y,
+        font_size,
+        Color::new(0.0, 1.0, 1.0, 1.0),
+    );
+    
+    // Instructions
+    let instruction = "Press P to resume";
+    let inst_width = measure_text(instruction, None, 24, 1.0).width;
+    let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
+    let inst_y = center_y + 60.0;
+    
+    // Instruction outline
+    for offset_x in [-1.0, 0.0, 1.0] {
+        for offset_y in [-1.0, 0.0, 1.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    instruction,
+                    inst_x + offset_x,
+                    inst_y + offset_y,
+                    24.0,
+                    Color::new(0.0, 0.0, 0.0, 0.8),
+                );
+            }
+        }
+    }
+    
+    draw_text(
+        instruction,
+        inst_x,
+        inst_y,
+        24.0,
+        Color::new(1.0, 1.0, 0.8, 1.0),
+    );
+}
+
+/// Show startup menu with load/new game options
+async fn show_startup_menu(save_path: &std::path::Path) -> Game {
+    loop {
+        // Clear screen
+        clear_background(Color::new(0.1, 0.05, 0.0, 1.0));
+        
+        // Draw title
+        let title = "RUST TETRIS";
+        let title_size = 60.0;
+        let title_width = measure_text(title, None, title_size as u16, 1.0).width;
+        let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
+        let title_y = 150.0;
+        
+        draw_text(
+            title,
+            title_x,
+            title_y,
+            title_size,
+            Color::new(1.0, 1.0, 0.0, 1.0),
+        );
+        
+        // Draw subtitle
+        let subtitle = "Save file found!";
+        let subtitle_size = 30.0;
+        let subtitle_width = measure_text(subtitle, None, subtitle_size as u16, 1.0).width;
+        let subtitle_x = (WINDOW_WIDTH as f32 - subtitle_width) / 2.0;
+        let subtitle_y = 220.0;
+        
+        draw_text(
+            subtitle,
+            subtitle_x,
+            subtitle_y,
+            subtitle_size,
+            Color::new(0.8, 0.8, 1.0, 1.0),
+        );
+        
+        // Draw menu options
+        let option1 = "Press L to LOAD saved game";
+        let option2 = "Press N to start NEW game";
+        let option3 = "Press ESC to quit";
+        
+        let option_size = 24.0;
+        let option_y_start = 300.0;
+        let option_spacing = 40.0;
+        
+        let options = [option1, option2, option3];
+        let colors = [
+            Color::new(0.0, 1.0, 0.0, 1.0), // Green for load
+            Color::new(1.0, 0.8, 0.0, 1.0), // Orange for new
+            Color::new(1.0, 0.4, 0.4, 1.0), // Red for quit
+        ];
+        
+        for (i, (option, color)) in options.iter().zip(colors.iter()).enumerate() {
+            let option_width = measure_text(option, None, option_size as u16, 1.0).width;
+            let option_x = (WINDOW_WIDTH as f32 - option_width) / 2.0;
+            let option_y = option_y_start + (i as f32 * option_spacing);
+            
+            draw_text(
+                option,
+                option_x,
+                option_y,
+                option_size,
+                *color,
+            );
+        }
+        
+        // Handle input
+        if is_key_pressed(KeyCode::L) {
+            // Load saved game
+            match Game::load_from_file(save_path) {
+                Ok(game) => {
+                    log::info!("Loaded saved game successfully");
+                    return game;
+                },
+                Err(e) => {
+                    log::warn!("Failed to load save file: {}", e);
+                    // Fall back to new game
+                    return Game::new();
+                }
+            }
+        }
+        
+        if is_key_pressed(KeyCode::N) {
+            // Start new game
+            log::info!("Starting new game");
+            return Game::new();
+        }
+        
+        if is_key_pressed(KeyCode::Escape) {
+            std::process::exit(0);
+        }
+        
+        next_frame().await;
     }
 }
 

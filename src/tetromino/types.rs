@@ -3,9 +3,10 @@
 use crate::graphics::colors::*;
 use macroquad::prelude::Color;
 use rand::Rng;
+use serde::{Serialize, Deserialize};
 
 /// Seven standard Tetris pieces
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TetrominoType {
     I, // Line piece (cyan)
     O, // Square piece (yellow)
@@ -17,7 +18,7 @@ pub enum TetrominoType {
 }
 
 impl TetrominoType {
-    /// Get all possible tetromino types
+    /// Get all tetromino types as an array
     pub fn all() -> [TetrominoType; 7] {
         [TetrominoType::I, TetrominoType::O, TetrominoType::T, 
          TetrominoType::S, TetrominoType::Z, TetrominoType::J, 
@@ -59,7 +60,7 @@ impl TetrominoType {
 }
 
 /// Represents a tetromino piece in the game
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tetromino {
     /// The type of tetromino
     pub piece_type: TetrominoType,

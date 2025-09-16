@@ -3,9 +3,14 @@
 use crate::board::{Board, Cell};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::game::config::*;
+use serde::{Serialize, Deserialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::fs;
+use std::path::Path;
 
 /// Game states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameState {
     Menu,
     Playing,
@@ -14,7 +19,7 @@ pub enum GameState {
 }
 
 /// Main game struct
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Game {
     /// Current game state
     pub state: GameState,
@@ -510,6 +515,55 @@ impl Game {
     /// Check if lines are currently being cleared (for rendering)
     pub fn is_clearing_lines(&self) -> bool {
         !self.clearing_lines.is_empty()
+    }
+    
+    /// Save the game state to a file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        log::info!("Game saved successfully");
+        Ok(())
+    }
+    
+    /// Load the game state from a file
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let json = fs::read_to_string(path)?;
+        let game: Game = serde_json::from_str(&json)?;
+        log::info!("Game loaded successfully");
+        Ok(game)
+    }
+    
+    /// Check if a save file exists
+    pub fn save_file_exists<P: AsRef<Path>>(path: P) -> bool {
+        path.as_ref().exists()
+    }
+    
+    /// Get the default save file path
+    pub fn default_save_path() -> std::path::PathBuf {
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("tetris_save.json")
+    }
+    
+    /// Get a hash of the current game state for efficient change detection
+    pub fn get_state_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        // Hash key game state components that matter for saves
+        self.score.hash(&mut hasher);
+        self.board.lines_cleared().hash(&mut hasher);
+        self.board.level().hash(&mut hasher);
+        self.ghost_blocks_available.hash(&mut hasher);
+        // Hash current piece position and type
+        if let Some(ref piece) = self.current_piece {
+            piece.piece_type.hash(&mut hasher);
+            piece.position.hash(&mut hasher);
+            piece.rotation.hash(&mut hasher);
+        }
+        self.next_piece.hash(&mut hasher);
+        self.held_piece.hash(&mut hasher);
+        // Hash filled cells in board (simplified)
+        self.board.filled_cells_count().hash(&mut hasher);
+        hasher.finish()
     }
     
     /// Get the lines being cleared (for animation rendering)
