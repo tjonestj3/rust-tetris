@@ -1,4 +1,4 @@
-# Phase 1: Foundation & Board Setup
+update # Phase 1: Foundation & Board Setup
 
 ## Current Branch: `feature/board-setup`
 
