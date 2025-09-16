@@ -2,14 +2,36 @@
 
 use crate::game::config::*;
 use macroquad::prelude::Color;
+use serde::{Serialize, Deserialize};
+
+// Custom serialization module for macroquad Color
+mod color_serde {
+    use super::*;
+    use serde::{Serializer, Deserializer, Deserialize};
+    
+    pub fn serialize<S>(color: &Color, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        (color.r, color.g, color.b, color.a).serialize(serializer)
+    }
+    
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Color, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let (r, g, b, a) = <(f32, f32, f32, f32)>::deserialize(deserializer)?;
+        Ok(Color::new(r, g, b, a))
+    }
+}
 
 /// Represents a single cell on the game board
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Cell {
     /// Empty cell
     Empty,
     /// Filled cell with a specific color
-    Filled(Color),
+    Filled(#[serde(with = "color_serde")] Color),
 }
 
 impl Cell {
@@ -33,7 +55,7 @@ impl Cell {
 }
 
 /// The main Tetris game board
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Board {
     /// The game grid - includes buffer rows above visible area
     grid: [[Cell; BOARD_WIDTH]; BOARD_HEIGHT + BUFFER_HEIGHT],

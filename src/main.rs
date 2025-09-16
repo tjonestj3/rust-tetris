@@ -42,11 +42,22 @@ async fn main() {
     // Start background music
     audio_system.start_background_music();
     
-    // Initialize game state
-    let mut game = Game::new();
+    // Check for existing save file and handle startup
+    let save_path = Game::default_save_path();
+    let mut game = if Game::save_file_exists(&save_path) {
+        // Show load/new game menu
+        show_startup_menu(&save_path).await
+    } else {
+        // No save file, start new game
+        Game::new()
+    };
+    
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
     let mut fps = 0.0;
+    let mut last_save_time = get_time();
+    let auto_save_interval = 30.0; // Auto-save every 30 seconds
+    let mut last_game_state_hash = 0u64; // Track game state changes for performance
     
     log::info!("Game initialized with first piece: {:?}", 
                game.current_piece.as_ref().map(|p| p.piece_type).unwrap_or(TetrominoType::T));
@@ -79,6 +90,23 @@ async fn main() {
         
         // Detect and play audio for game events
         detect_and_play_audio_events(&game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+        
+        // Auto-save periodically during gameplay (optimized with state change detection)
+        if game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
+            let current_hash = game.get_state_hash();
+            if current_hash != last_game_state_hash {
+                // Only save if game state has actually changed
+                if let Err(e) = game.save_to_file(&save_path) {
+                    log::warn!("Auto-save failed: {}", e);
+                } else {
+                    last_game_state_hash = current_hash;
+                    log::debug!("Auto-save completed (state changed)");
+                }
+            } else {
+                log::debug!("Auto-save skipped (no state change)");
+            }
+            last_save_time = current_time;
+        }
 
         // Clear screen with dark background
         clear_background(BACKGROUND_COLOR);
@@ -133,6 +161,23 @@ async fn main() {
         
         // Draw title with enhanced styling
         draw_enhanced_ui(&game);
+        
+        // Draw TETRIS celebration if active
+        if game.is_tetris_celebration_active() {
+            draw_tetris_celebration(&game);
+        }
+        
+        // Draw ghost throw animation if active
+        if game.is_ghost_throw_active() {
+            draw_ghost_throw_animation(&game);
+        }
+        
+        // Draw game state overlays
+        match game.state {
+            GameState::GameOver => draw_game_over_overlay(&game),
+            GameState::Paused => draw_pause_overlay(&game),
+            _ => {}, // No overlay for Playing or Menu
+        }
 
         // Show FPS in debug mode
         if SHOW_FPS {
@@ -197,7 +242,36 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
         std::process::exit(0);
     }
     
-    // Only handle game input when playing
+    // Save game (S key) - available in any state
+    if is_key_pressed(KeyCode::S) && is_key_down(KeyCode::LeftControl) {
+        let save_path = Game::default_save_path();
+        match game.save_to_file(&save_path) {
+            Ok(_) => {
+                log::info!("Game saved manually");
+                audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+            },
+            Err(e) => {
+                log::warn!("Manual save failed: {}", e);
+            }
+        }
+        return;
+    }
+    
+    // Reset game (R key) - available in any state
+    if is_key_pressed(KeyCode::R) {
+        game.reset();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+        return;
+    }
+    
+    // Pause toggle (P key) - available when playing or paused
+    if is_key_pressed(KeyCode::P) && (game.state == GameState::Playing || game.state == GameState::Paused) {
+        game.toggle_pause();
+        audio_system.play_sound(SoundType::Pause);
+        return;
+    }
+    
+    // Only handle game controls when playing
     if game.state != GameState::Playing {
         return;
     }
@@ -280,18 +354,6 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
             audio_system.play_sound(SoundType::HoldPiece);
         }
     }
-    
-    // Pause
-    if is_key_pressed(KeyCode::P) {
-        game.toggle_pause();
-        audio_system.play_sound(SoundType::Pause);
-    }
-    
-    // Reset game (R key)
-    if is_key_pressed(KeyCode::R) {
-        game.reset();
-        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
-    }
 }
 
 /// Draw the currently falling piece
@@ -342,32 +404,85 @@ fn draw_ghost_piece(ghost_piece: &Tetromino) {
             let cell_x = BOARD_OFFSET_X + (x as f32 * CELL_SIZE);
             let cell_y = BOARD_OFFSET_Y + (visible_y as f32 * CELL_SIZE);
             
-            // Get base color and make it translucent
             let base_color = ghost_piece.color();
-            let ghost_color = Color::new(
+            
+            // Enhanced ghost piece visibility:
+            // 1. Brighter, thicker outer border for better contrast
+            let outer_border_color = Color::new(1.0, 1.0, 1.0, 0.8); // Bright white border
+            draw_rectangle_lines(
+                cell_x + 1.0,
+                cell_y + 1.0,
+                CELL_SIZE - 2.0,
+                CELL_SIZE - 2.0,
+                3.0, // Thicker border
+                outer_border_color,
+            );
+            
+            // 2. Colored inner border using piece color with higher alpha
+            let inner_border_color = Color::new(
                 base_color.r,
                 base_color.g,
                 base_color.b,
-                0.3, // Make it quite transparent
+                0.6, // More visible than before
+            );
+            draw_rectangle_lines(
+                cell_x + 3.0,
+                cell_y + 3.0,
+                CELL_SIZE - 6.0,
+                CELL_SIZE - 6.0,
+                2.0,
+                inner_border_color,
             );
             
-            // Draw ghost cell with just a border outline
-            draw_rectangle_lines(
+            // 3. Subtle but more visible fill with pattern
+            let fill_color = Color::new(
+                (base_color.r + 0.3).min(1.0), // Brighten the fill
+                (base_color.g + 0.3).min(1.0),
+                (base_color.b + 0.3).min(1.0),
+                0.2, // Doubled the alpha from 0.1 to 0.2
+            );
+            draw_rectangle(
+                cell_x + 5.0,
+                cell_y + 5.0,
+                CELL_SIZE - 10.0,
+                CELL_SIZE - 10.0,
+                fill_color,
+            );
+            
+            // 4. Add small corner dots for extra visibility
+            let dot_color = Color::new(1.0, 1.0, 1.0, 0.7);
+            let dot_size = 2.0;
+            // Top-left corner dot
+            draw_rectangle(
                 cell_x + 2.0,
                 cell_y + 2.0,
-                CELL_SIZE - 4.0,
-                CELL_SIZE - 4.0,
-                2.0,
-                ghost_color,
+                dot_size,
+                dot_size,
+                dot_color,
             );
-            
-            // Add subtle fill for better visibility
+            // Top-right corner dot
             draw_rectangle(
-                cell_x + 4.0,
-                cell_y + 4.0,
-                CELL_SIZE - 8.0,
-                CELL_SIZE - 8.0,
-                Color::new(base_color.r, base_color.g, base_color.b, 0.1),
+                cell_x + CELL_SIZE - 4.0,
+                cell_y + 2.0,
+                dot_size,
+                dot_size,
+                dot_color,
+            );
+            // Bottom-left corner dot
+            draw_rectangle(
+                cell_x + 2.0,
+                cell_y + CELL_SIZE - 4.0,
+                dot_size,
+                dot_size,
+                dot_color,
+            );
+            // Bottom-right corner dot
+            draw_rectangle(
+                cell_x + CELL_SIZE - 4.0,
+                cell_y + CELL_SIZE - 4.0,
+                dot_size,
+                dot_size,
+                dot_color,
             );
         }
     }
@@ -394,6 +509,439 @@ fn draw_ghost_block_cursor(game: &Game) {
             CELL_SIZE - 12.0,
             Color::new(1.0, 1.0, 1.0, 0.15),
         );
+    }
+}
+
+/// Draw ghost block throwing animation with character and projectile
+fn draw_ghost_throw_animation(game: &Game) {
+    if let Some((progress, start_pos, target_pos)) = game.get_ghost_throw_info() {
+        // Animation phases
+        let throw_start = 0.0;
+        let throw_peak = 0.3;     // Character throwing at 30%
+        let block_flight = 0.8;   // Block reaches target at 80%
+        let impact_end = 1.0;     // Impact effects end at 100%
+        
+        // Draw throwing character (simple stick figure)
+        let char_x = start_pos.0;
+        let char_y = start_pos.1;
+        
+        if progress <= throw_peak {
+            // Pre-throw and throwing animation
+            let throw_progress = (progress / throw_peak) as f32;
+            draw_stick_figure_throwing(char_x, char_y, throw_progress);
+        } else {
+            // Post-throw pose
+            draw_stick_figure_thrown(char_x, char_y);
+        }
+        
+        // Draw flying block
+        if progress >= throw_peak && progress <= block_flight {
+            let flight_progress = ((progress - throw_peak) / (block_flight - throw_peak)) as f32;
+            
+            // Calculate parabolic trajectory
+            let start_x = start_pos.0 + 30.0; // Offset from character's hand
+            let start_y = start_pos.1 - 10.0;
+            let end_x = target_pos.0;
+            let end_y = target_pos.1;
+            
+            // Parabolic motion
+            let current_x = start_x + (end_x - start_x) * flight_progress;
+            let peak_height = 60.0; // Height of arc
+            let arc_progress = flight_progress * (1.0 - flight_progress) * 4.0; // Peaks at 0.5 progress
+            let current_y = start_y + (end_y - start_y) * flight_progress - peak_height * arc_progress;
+            
+            // Draw spinning block with trail
+            let rotation = flight_progress * 6.28 * 3.0; // 3 full rotations
+            draw_spinning_ghost_block(current_x, current_y, rotation, flight_progress);
+            
+            // Draw motion trail
+            draw_block_trail(start_x, start_y, current_x, current_y, flight_progress);
+        }
+        
+        // Draw impact effects
+        if progress >= block_flight {
+            let impact_progress = ((progress - block_flight) / (impact_end - block_flight)) as f32;
+            draw_impact_effects(target_pos.0, target_pos.1, impact_progress);
+        }
+    }
+}
+
+/// Draw magical mage in spell-casting pose
+fn draw_stick_figure_throwing(x: f32, y: f32, progress: f32) {
+    let skin_color = Color::new(0.95, 0.87, 0.73, 0.9); // Warm skin tone
+    let robe_color = Color::new(0.2, 0.1, 0.6, 0.9);   // Deep purple robe
+    let staff_color = Color::new(0.6, 0.4, 0.2, 0.9);  // Brown wooden staff
+    let magic_color = Color::new(0.8, 0.9, 1.0, 0.8);  // Bright magical energy
+    let line_width = 3.0;
+    
+    // Animate spell-casting motion
+    let spell_progress = progress * 1.8; // More dramatic casting motion
+    let body_lean = progress * 0.2;      // Slight forward lean
+    let magic_intensity = (progress * 3.14).sin().max(0.0); // Pulsing magic
+    
+    // Draw flowing robe (wider base)
+    let robe_width = 25.0 + progress * 5.0; // Robe billows during cast
+    let body_center_x = x + body_lean * 10.0;
+    let body_center_y = y + 15.0;
+    
+    // Robe body (triangle shape for flowing effect)
+    let robe_points = [
+        (body_center_x - robe_width / 2.0, body_center_y + 40.0), // Bottom left
+        (body_center_x + robe_width / 2.0, body_center_y + 40.0), // Bottom right
+        (body_center_x, body_center_y - 10.0),                     // Top center
+    ];
+    
+    // Draw robe fill
+    for i in 0..3 {
+        let p1 = robe_points[i];
+        let p2 = robe_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 8.0, robe_color);
+    }
+    
+    // Head with pointed wizard hat
+    draw_circle(body_center_x, y - 8.0, 7.0, skin_color);
+    
+    // Wizard hat (triangle)
+    let hat_points = [
+        (body_center_x - 8.0, y - 15.0),  // Left base
+        (body_center_x + 8.0, y - 15.0),  // Right base  
+        (body_center_x + 3.0, y - 35.0),  // Pointed tip (slightly off-center)
+    ];
+    
+    for i in 0..3 {
+        let p1 = hat_points[i];
+        let p2 = hat_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 4.0, robe_color);
+    }
+    
+    // Magical staff in non-casting hand
+    let staff_x = body_center_x - 20.0;
+    let staff_y1 = body_center_y - 5.0;
+    let staff_y2 = staff_y1 + 35.0;
+    
+    // Staff shaft
+    draw_line(staff_x, staff_y1, staff_x, staff_y2, 4.0, staff_color);
+    
+    // Magical orb at top of staff
+    draw_circle(staff_x, staff_y1 - 8.0, 5.0, magic_color);
+    
+    // Pulsing magic aura around orb
+    if magic_intensity > 0.3 {
+        let aura_size = 8.0 + magic_intensity * 4.0;
+        draw_circle_lines(staff_x, staff_y1 - 8.0, aura_size, 2.0, 
+                         Color::new(magic_color.r, magic_color.g, magic_color.b, magic_intensity * 0.6));
+    }
+    
+    // Casting arm (extended forward with magical energy)
+    let cast_arm_x = body_center_x + spell_progress.cos() * 25.0;
+    let cast_arm_y = body_center_y - 5.0 + spell_progress.sin() * 12.0;
+    
+    // Arm to casting position
+    draw_line(body_center_x + 5.0, body_center_y - 5.0, cast_arm_x, cast_arm_y, line_width, skin_color);
+    
+    // Magical energy swirling around casting hand
+    if progress > 0.2 {
+        let swirl_count = 5;
+        for i in 0..swirl_count {
+            let swirl_angle = (progress * 6.28 * 2.0) + (i as f32 * 1.256); // Different phase for each swirl
+            let swirl_radius = 8.0 + (i as f32 * 2.0);
+            let swirl_x = cast_arm_x + swirl_angle.cos() * swirl_radius;
+            let swirl_y = cast_arm_y + swirl_angle.sin() * swirl_radius * 0.5;
+            
+            let swirl_alpha = magic_intensity * (1.0 - i as f32 * 0.2);
+            draw_circle(swirl_x, swirl_y, 2.0, Color::new(magic_color.r, magic_color.g, magic_color.b, swirl_alpha));
+        }
+    }
+    
+    // Magical runes floating around mage
+    if progress > 0.4 {
+        let rune_positions = [
+            (body_center_x - 30.0, body_center_y - 20.0),
+            (body_center_x + 25.0, body_center_y - 15.0),
+            (body_center_x - 15.0, body_center_y - 30.0),
+        ];
+        
+        for (i, &(rune_x, rune_y)) in rune_positions.iter().enumerate() {
+            let rune_progress = (progress - 0.4) * 2.0; // Start appearing at 40% progress
+            let float_offset = ((progress * 4.0 + i as f32).sin() * 3.0) as f32;
+            let rune_alpha = (rune_progress * magic_intensity).min(0.8);
+            
+            if rune_alpha > 0.1 {
+                // Simple rune symbols (just geometric shapes)
+                match i {
+                    0 => { // Circle rune
+                        draw_circle_lines(rune_x, rune_y + float_offset, 4.0, 2.0, 
+                                        Color::new(1.0, 0.8, 0.2, rune_alpha));
+                    },
+                    1 => { // Triangle rune
+                        let size = 4.0;
+                        draw_line(rune_x - size, rune_y + size + float_offset, 
+                                rune_x + size, rune_y + size + float_offset, 2.0, 
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                        draw_line(rune_x + size, rune_y + size + float_offset,
+                                rune_x, rune_y - size + float_offset, 2.0,
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                        draw_line(rune_x, rune_y - size + float_offset,
+                                rune_x - size, rune_y + size + float_offset, 2.0,
+                                Color::new(0.2, 0.8, 1.0, rune_alpha));
+                    },
+                    _ => { // Diamond rune
+                        let size = 3.0;
+                        draw_line(rune_x, rune_y - size + float_offset,
+                                rune_x + size, rune_y + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x + size, rune_y + float_offset,
+                                rune_x, rune_y + size + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x, rune_y + size + float_offset,
+                                rune_x - size, rune_y + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                        draw_line(rune_x - size, rune_y + float_offset,
+                                rune_x, rune_y - size + float_offset, 2.0,
+                                Color::new(0.8, 0.2, 0.8, rune_alpha));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Draw mage completing the spell (post-cast pose)
+fn draw_stick_figure_thrown(x: f32, y: f32) {
+    let skin_color = Color::new(0.95, 0.87, 0.73, 0.7); // Slightly faded warm skin
+    let robe_color = Color::new(0.2, 0.1, 0.6, 0.7);   // Faded deep purple robe
+    let staff_color = Color::new(0.6, 0.4, 0.2, 0.7);  // Faded brown wooden staff
+    let magic_color = Color::new(0.8, 0.9, 1.0, 0.5);  // Faded magical energy
+    
+    // Mage in post-spell completion pose (more relaxed)
+    let body_center_x = x + 15.0;
+    let body_center_y = y + 20.0;
+    
+    // Robe (slightly more relaxed shape)
+    let robe_width = 22.0;
+    let robe_points = [
+        (body_center_x - robe_width / 2.0, body_center_y + 35.0), // Bottom left
+        (body_center_x + robe_width / 2.0, body_center_y + 35.0), // Bottom right
+        (body_center_x, body_center_y - 5.0),                      // Top center
+    ];
+    
+    // Draw robe outline
+    for i in 0..3 {
+        let p1 = robe_points[i];
+        let p2 = robe_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 6.0, robe_color);
+    }
+    
+    // Head with wizard hat
+    draw_circle(body_center_x, y - 5.0, 6.0, skin_color);
+    
+    // Wizard hat (relaxed position)
+    let hat_points = [
+        (body_center_x - 7.0, y - 12.0),  // Left base
+        (body_center_x + 7.0, y - 12.0),  // Right base  
+        (body_center_x + 2.0, y - 28.0),  // Pointed tip
+    ];
+    
+    for i in 0..3 {
+        let p1 = hat_points[i];
+        let p2 = hat_points[(i + 1) % 3];
+        draw_line(p1.0, p1.1, p2.0, p2.1, 3.0, robe_color);
+    }
+    
+    // Staff in left hand (still held)
+    let staff_x = body_center_x - 18.0;
+    let staff_y1 = body_center_y;
+    let staff_y2 = staff_y1 + 30.0;
+    
+    // Staff shaft
+    draw_line(staff_x, staff_y1, staff_x, staff_y2, 3.0, staff_color);
+    
+    // Dimmed magical orb (spell complete)
+    draw_circle(staff_x, staff_y1 - 6.0, 4.0, Color::new(magic_color.r, magic_color.g, magic_color.b, 0.3));
+    
+    // Extended casting arm (follow-through)
+    let cast_arm_x = body_center_x + 25.0;
+    let cast_arm_y = body_center_y;
+    
+    draw_line(body_center_x + 3.0, body_center_y, cast_arm_x, cast_arm_y, 2.5, skin_color);
+    
+    // Residual magical sparkles fading away
+    let sparkle_positions = [
+        (cast_arm_x + 5.0, cast_arm_y - 3.0),
+        (cast_arm_x + 8.0, cast_arm_y + 2.0),
+        (cast_arm_x + 3.0, cast_arm_y + 5.0),
+    ];
+    
+    for &(spark_x, spark_y) in &sparkle_positions {
+        draw_circle(spark_x, spark_y, 1.5, Color::new(1.0, 1.0, 0.8, 0.4));
+    }
+    
+    // Faint magical aura still emanating (spell aftermath)
+    draw_circle_lines(body_center_x, body_center_y, 25.0, 1.0, 
+                     Color::new(magic_color.r, magic_color.g, magic_color.b, 0.2));
+}
+
+/// Draw spinning fireball projectile with magical flame effects
+fn draw_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
+    let base_size = 16.0;
+    let alpha = 1.0 - progress * 0.2; // Keep fireball bright during flight
+    let intensity = (rotation * 2.0).sin() * 0.3 + 0.7; // Pulsing intensity
+    
+    // Outer flame ring (orange-red)
+    let outer_size = base_size * 1.8 * intensity;
+    let outer_color = Color::new(1.0, 0.4, 0.1, alpha * 0.6);
+    draw_circle(x, y, outer_size, outer_color);
+    
+    // Middle flame layer (bright orange)
+    let mid_size = base_size * 1.3 * intensity;
+    let mid_color = Color::new(1.0, 0.6, 0.1, alpha * 0.8);
+    draw_circle(x, y, mid_size, mid_color);
+    
+    // Inner flame core (yellow-white)
+    let core_size = base_size * 0.8;
+    let core_color = Color::new(1.0, 0.9, 0.3, alpha);
+    draw_circle(x, y, core_size, core_color);
+    
+    // Central blazing core (bright white-yellow)
+    let center_size = base_size * 0.4;
+    let center_color = Color::new(1.0, 1.0, 0.8, alpha);
+    draw_circle(x, y, center_size, center_color);
+    
+    // Flame particles swirling around
+    let particle_count = 8;
+    for i in 0..particle_count {
+        let angle = rotation * 3.0 + (i as f32 * 0.785); // Faster spinning particles
+        let distance = base_size * 1.2 + (angle * 1.5).sin() * 4.0; // Varying distance
+        let particle_x = x + angle.cos() * distance;
+        let particle_y = y + angle.sin() * distance;
+        
+        // Particle size varies with position
+        let particle_size = 2.0 + (angle * 2.0).sin().abs() * 2.0;
+        
+        // Particle color transitions from red to yellow
+        let color_phase = (i as f32 / particle_count as f32);
+        let particle_color = Color::new(
+            1.0,
+            0.3 + color_phase * 0.6, // Red to yellow transition
+            0.1 + color_phase * 0.2, // Slight blue for orange effect
+            alpha * (0.5 + (angle).sin().abs() * 0.5),
+        );
+        
+        draw_circle(particle_x, particle_y, particle_size, particle_color);
+    }
+    
+    // Trailing flame wisps
+    let wisp_count = 6;
+    for i in 0..wisp_count {
+        let wisp_angle = rotation + (i as f32 * 1.047); // Different from particles
+        let wisp_distance = base_size * 2.0;
+        let trail_offset = -(i as f32) * 2.0; // Trail behind
+        
+        let wisp_x = x + wisp_angle.cos() * wisp_distance + trail_offset;
+        let wisp_y = y + wisp_angle.sin() * wisp_distance;
+        
+        let wisp_size = 3.0 - (i as f32 * 0.3); // Smaller as they trail
+        let wisp_alpha = alpha * (1.0 - i as f32 * 0.15); // Fade as they trail
+        
+        let wisp_color = Color::new(1.0, 0.5, 0.1, wisp_alpha * 0.4);
+        draw_circle(wisp_x, wisp_y, wisp_size, wisp_color);
+    }
+    
+    // Heat distortion effect (subtle rings)
+    for ring in 0..3 {
+        let ring_size = base_size * (1.5 + ring as f32 * 0.5) * intensity;
+        let ring_alpha = alpha * 0.1 * (1.0 - ring as f32 * 0.3);
+        let ring_color = Color::new(1.0, 0.8, 0.6, ring_alpha);
+        
+        draw_circle_lines(x, y, ring_size, 1.0, ring_color);
+    }
+    
+    // Magical sparkles around the fireball
+    let sparkle_count = 12;
+    for i in 0..sparkle_count {
+        let sparkle_angle = rotation * 2.0 + (i as f32 * 0.524); // Different rotation speed
+        let sparkle_distance = base_size * 2.5 + (sparkle_angle * 3.0).sin() * 8.0;
+        let sparkle_x = x + sparkle_angle.cos() * sparkle_distance;
+        let sparkle_y = y + sparkle_angle.sin() * sparkle_distance;
+        
+        // Twinkling effect
+        let twinkle = (rotation * 5.0 + i as f32).sin().abs();
+        if twinkle > 0.7 {
+            let sparkle_size = 1.5 + twinkle * 1.5;
+            let sparkle_color = Color::new(1.0, 1.0, 0.8, alpha * twinkle * 0.8);
+            draw_circle(sparkle_x, sparkle_y, sparkle_size, sparkle_color);
+        }
+    }
+}
+
+/// Draw motion trail behind the flying block
+fn draw_block_trail(start_x: f32, start_y: f32, current_x: f32, current_y: f32, progress: f32) {
+    let trail_segments = 8;
+    
+    for i in 0..trail_segments {
+        let segment_progress = i as f32 / trail_segments as f32;
+        let trail_progress = progress - segment_progress * 0.3;
+        
+        if trail_progress > 0.0 {
+            let seg_x = start_x + (current_x - start_x) * trail_progress;
+            let seg_y = start_y + (current_y - start_y) * trail_progress;
+            
+            let alpha = (1.0 - segment_progress) * 0.5;
+            let size = 8.0 * (1.0 - segment_progress * 0.7);
+            
+            draw_circle(
+                seg_x, 
+                seg_y, 
+                size, 
+                Color::new(0.8, 0.8, 1.0, alpha)
+            );
+        }
+    }
+}
+
+/// Draw impact effects when block reaches target
+fn draw_impact_effects(x: f32, y: f32, progress: f32) {
+    if progress <= 1.0 {
+        // Expanding impact rings
+        for i in 0..3 {
+            let ring_delay = i as f32 * 0.2;
+            let ring_progress = (progress - ring_delay).max(0.0);
+            
+            if ring_progress > 0.0 {
+                let radius = ring_progress * 30.0;
+                let alpha = (1.0 - ring_progress) * 0.6;
+                
+                draw_circle_lines(
+                    x, y, radius, 3.0,
+                    Color::new(0.8, 0.8, 1.0, alpha)
+                );
+            }
+        }
+        
+        // Particle burst
+        let particle_count = 12;
+        for i in 0..particle_count {
+            let angle = (i as f32 / particle_count as f32) * 6.28;
+            let distance = progress * 25.0;
+            let particle_x = x + angle.cos() * distance;
+            let particle_y = y + angle.sin() * distance;
+            
+            let alpha = (1.0 - progress) * 0.8;
+            let size = 3.0 * (1.0 - progress * 0.5);
+            
+            draw_circle(
+                particle_x, 
+                particle_y, 
+                size,
+                Color::new(1.0, 1.0, 0.8, alpha)
+            );
+        }
+        
+        // Central flash
+        if progress <= 0.3 {
+            let flash_alpha = (1.0 - progress / 0.3) * 0.8;
+            draw_circle(x, y, 20.0, Color::new(1.0, 1.0, 1.0, flash_alpha));
+        }
     }
 }
 
@@ -629,32 +1177,32 @@ fn draw_next_piece_preview(next_piece_type: &TetrominoType) {
     let preview_x = PREVIEW_OFFSET_X;
     let preview_y = PREVIEW_OFFSET_Y;
     
-    // Draw preview panel background
+    // Draw preview panel background - retro style
     draw_rectangle(
         preview_x - 10.0,
         preview_y - 30.0,
         PREVIEW_SIZE + 20.0,
         PREVIEW_SIZE + 40.0,
-        Color::new(0.0, 0.0, 0.0, 0.6),
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
     );
     
-    // Draw preview panel border
+    // Draw preview panel border - cyan retro
     draw_rectangle_lines(
         preview_x - 10.0,
         preview_y - 30.0,
         PREVIEW_SIZE + 20.0,
         PREVIEW_SIZE + 40.0,
         2.0,
-        UI_BORDER,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
-    // Draw "NEXT" label
+    // Draw "NEXT" label - retro yellow
     draw_text(
         "NEXT",
         preview_x,
         preview_y - 10.0,
         TEXT_SIZE,
-        Color::new(1.0, 0.9, 0.7, 1.0),
+        Color::new(1.0, 1.0, 0.0, 1.0), // Yellow retro style
     );
     
     // Create a temporary piece for preview
@@ -696,32 +1244,32 @@ fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
     let hold_x = HOLD_OFFSET_X;
     let hold_y = HOLD_OFFSET_Y;
     
-    // Draw hold panel background
-    let bg_alpha = if can_hold { 0.6 } else { 0.3 }; // Dimmed when can't hold
+    // Draw hold panel background - retro style
+    let bg_alpha = if can_hold { 0.8 } else { 0.4 }; // Dimmed when can't hold
     draw_rectangle(
         hold_x - 10.0,
         hold_y - 30.0,
         HOLD_SIZE + 20.0,
         HOLD_SIZE + 40.0,
-        Color::new(0.0, 0.0, 0.0, bg_alpha),
+        Color::new(0.0, 0.0, 0.2, bg_alpha), // Dark blue retro background
     );
     
-    // Draw hold panel border
-    let border_alpha = if can_hold { 1.0 } else { 0.5 };
+    // Draw hold panel border - retro cyan
+    let border_alpha = if can_hold { 0.8 } else { 0.4 };
     draw_rectangle_lines(
         hold_x - 10.0,
         hold_y - 30.0,
         HOLD_SIZE + 20.0,
         HOLD_SIZE + 40.0,
         2.0,
-        Color::new(UI_BORDER.r, UI_BORDER.g, UI_BORDER.b, border_alpha),
+        Color::new(0.0, 1.0, 1.0, border_alpha), // Cyan border
     );
     
-    // Draw "HOLD" label with visual feedback
+    // Draw "HOLD" label with retro styling
     let label_color = if can_hold {
-        Color::new(1.0, 0.9, 0.7, 1.0)
+        Color::new(1.0, 1.0, 0.0, 1.0) // Yellow retro style
     } else {
-        Color::new(0.6, 0.6, 0.6, 1.0) // Grayed out when can't hold
+        Color::new(0.6, 0.6, 0.0, 0.6) // Dimmed yellow when can't hold
     };
     
     draw_text(
@@ -945,110 +1493,203 @@ fn detect_and_play_audio_events(
     }
 }
 
-/// Draw enhanced UI elements
+/// Draw retro-styled TETRIS logo with block letters
+fn draw_retro_tetris_logo() {
+    let logo_y = 25.0;
+    let block_size = 6.0;
+    let letter_width = block_size * 4.0;
+    let letter_spacing = block_size * 1.5;
+    
+    // Calculate center position for the entire logo
+    let total_width = letter_width * 6.0 + letter_spacing * 5.0; // 6 letters + 5 spaces
+    let start_x = (WINDOW_WIDTH as f32 - total_width) / 2.0;
+    
+    let letters = [
+        // T
+        [
+            [1,1,1,1],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0]
+        ],
+        // E  
+        [
+            [1,1,1,1],
+            [1,0,0,0],
+            [1,1,1,0],
+            [1,0,0,0],
+            [1,1,1,1]
+        ],
+        // T
+        [
+            [1,1,1,1],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0]
+        ],
+        // R
+        [
+            [1,1,1,0],
+            [1,0,0,1],
+            [1,1,1,0],
+            [1,0,1,0],
+            [1,0,0,1]
+        ],
+        // I
+        [
+            [1,1,1,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [0,1,0,0],
+            [1,1,1,0]
+        ],
+        // S
+        [
+            [0,1,1,1],
+            [1,0,0,0],
+            [0,1,1,0],
+            [0,0,0,1],
+            [1,1,1,0]
+        ]
+    ];
+    
+    // Draw each letter
+    for (letter_idx, letter) in letters.iter().enumerate() {
+        let letter_x = start_x + (letter_idx as f32 * (letter_width + letter_spacing));
+        
+        // Draw letter blocks with retro colors
+        for (row, line) in letter.iter().enumerate() {
+            for (col, &block) in line.iter().enumerate() {
+                if block == 1 {
+                    let x = letter_x + (col as f32 * block_size);
+                    let y = logo_y + (row as f32 * block_size);
+                    
+                    // Create rainbow effect across letters
+                    let hue = (letter_idx as f64 + col as f64 * 0.2) / 6.0 * 6.0; // Full rainbow across 6 letters
+                    let letter_color = hsv_to_rgb(hue, 0.9, 1.0);
+                    
+                    // Draw main block
+                    draw_rectangle(
+                        x,
+                        y,
+                        block_size,
+                        block_size,
+                        letter_color,
+                    );
+                    
+                    // Draw glow effect
+                    draw_rectangle(
+                        x - 1.0,
+                        y - 1.0,
+                        block_size + 2.0,
+                        block_size + 2.0,
+                        Color::new(letter_color.r, letter_color.g, letter_color.b, 0.3),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Draw enhanced UI elements with retro theme
 fn draw_enhanced_ui(game: &Game) {
-    // Draw title with shadow effect
-    let title = "RUST TETRIS";
-    let title_x = (WINDOW_WIDTH as f32 - measure_text(title, None, TITLE_TEXT_SIZE as u16, 1.0).width) / 2.0;
+    // Draw retro TETRIS title logo
+    draw_retro_tetris_logo();
     
-    // Title shadow
-    draw_text(
-        title,
-        title_x + 2.0,
-        42.0,
-        TITLE_TEXT_SIZE,
-        Color::new(0.0, 0.0, 0.0, 0.8),
-    );
-    
-    // Main title
-    draw_text(
-        title,
-        title_x,
-        40.0,
-        TITLE_TEXT_SIZE,
-        Color::new(1.0, 0.9, 0.7, 1.0),
-    );
-    
-    // Subtitle
-    let subtitle = "Phase 1 - Foundation";
-    let subtitle_x = (WINDOW_WIDTH as f32 - measure_text(subtitle, None, TEXT_SIZE as u16, 1.0).width) / 2.0;
+    // Draw retro subtitle
+    let subtitle = "CLASSIC ARCADE EDITION";
+    let subtitle_x = (WINDOW_WIDTH as f32 - measure_text(subtitle, None, (TEXT_SIZE * 0.8) as u16, 1.0).width) / 2.0;
     
     draw_text(
         subtitle,
         subtitle_x,
-        65.0,
-        TEXT_SIZE,
-        Color::new(0.8, 0.8, 0.9, 0.8),
+        75.0,
+        TEXT_SIZE * 0.8,
+        Color::new(0.0, 1.0, 1.0, 0.9), // Cyan retro color
     );
     
-    // Instructions with background
+    // Instructions with background - compact retro style
     let instructions = vec![
-        "Controls:",
-        "← → / A D - Move (hold)",
-        "↓ S - Soft Drop (hold)",
-        "↑ X W - Rotate CW",
-        "Z - Rotate CCW",
-        "Space - Hard Drop",
-        "B - Smart Ghost Block (4 lines)",
-        "M/N - Next/Prev best spot",
+        "CONTROLS:",
+        "← → A D - Move",
+        "↓ S - Soft Drop",
+        "↑ X W / Z - Rotate",
+        "SPACE - Hard Drop",
         "C - Hold Piece",
-        "Ghost shows landing spot",
-        "P - Pause, R - Reset",
+        "P - Pause / R - Reset",
+        "Ctrl+S - Save Game",
     ];
     
-    let inst_x = 20.0;
-    let mut inst_y = WINDOW_HEIGHT as f32 - 120.0;
+    let inst_x = 25.0; // Moderate padding from left edge
+    let instruction_height = (instructions.len() as f32 * 18.0) + 35.0; // Moderate internal padding
+    let mut inst_y = WINDOW_HEIGHT as f32 - instruction_height - 15.0; // Moderate padding from bottom
     
-    // Instructions background
+    // Calculate safe width that won't overlap with board
+    let max_safe_width = BOARD_OFFSET_X - inst_x - 10.0; // Leave 10px gap from board
+    let panel_width = max_safe_width.min(260.0); // Cap at reasonable width
+    
+    // Instructions background with retro border
     draw_rectangle(
-        inst_x - 10.0,
-        inst_y - 25.0,
-        280.0,
-        120.0, // Increased height for hold piece instruction
-        Color::new(0.0, 0.0, 0.0, 0.6),
+        inst_x - 12.0, // Moderate left padding
+        inst_y - 22.0, // Moderate top padding
+        panel_width,
+        instruction_height,
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
+    );
+    
+    // Retro border
+    draw_rectangle_lines(
+        inst_x - 12.0, // Match background padding
+        inst_y - 22.0, // Match background padding
+        panel_width, // Match background width
+        instruction_height,
+        2.0,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
     for (i, instruction) in instructions.iter().enumerate() {
         let color = if i == 0 {
-            Color::new(1.0, 0.9, 0.7, 1.0) // Header color
+            Color::new(1.0, 1.0, 0.0, 1.0) // Yellow header - retro style
         } else {
-            Color::new(0.9, 0.9, 0.95, 0.9) // Normal text
+            Color::new(0.0, 1.0, 0.0, 0.9) // Green text - classic terminal green
         };
         
-        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.8, color);
-        inst_y += 22.0;
+        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.75, color);
+        inst_y += 18.0; // Tighter spacing
     }
     
-    // Game statistics panel
-    let stats_x = 20.0;
-    let mut stats_y = BOARD_OFFSET_Y + BOARD_HEIGHT_PX - 200.0;
+    // Game statistics panel with retro styling - position on right side
+    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 20.0; // Right side of board
+    let mut stats_y = PREVIEW_OFFSET_Y + PREVIEW_SIZE + 60.0; // Below the Next piece panel
     
-    // Stats background
+    // Stats background - retro dark blue
     draw_rectangle(
         stats_x - 10.0,
         stats_y - 30.0,
         200.0,
-        180.0,
-        Color::new(0.0, 0.0, 0.0, 0.7),
+        160.0, // Slightly smaller height
+        Color::new(0.0, 0.0, 0.2, 0.8), // Dark blue retro background
     );
     
-    // Stats border
+    // Stats border - cyan retro style
     draw_rectangle_lines(
         stats_x - 10.0,
         stats_y - 30.0,
         200.0,
-        180.0,
+        160.0,
         2.0,
-        UI_BORDER,
+        Color::new(0.0, 1.0, 1.0, 0.8), // Cyan border
     );
     
-    // Stats title
+    // Stats title - retro yellow
     draw_text(
         "GAME STATS",
         stats_x,
         stats_y - 10.0,
         TEXT_SIZE * 0.9,
-        Color::new(1.0, 0.9, 0.7, 1.0),
+        Color::new(1.0, 1.0, 0.0, 1.0), // Yellow retro header
     );
     stats_y += 15.0;
     
@@ -1068,7 +1709,7 @@ fn draw_enhanced_ui(game: &Game) {
             let pulse = (game.game_time * 3.0).sin() as f32 * 0.3 + 0.7;
             Color::new(0.8, 0.8, 1.0, pulse) // Light blue pulsing
         } else {
-            Color::new(0.9, 0.9, 0.95, 0.9) // Normal color
+            Color::new(0.0, 1.0, 0.0, 0.9) // Green terminal-style text
         };
         
         draw_text(
@@ -1092,7 +1733,7 @@ fn draw_enhanced_ui(game: &Game) {
         );
     }
     
-    // Board info label or ghost block placement mode indicator
+    // Ghost block placement mode indicator (if active)
     if game.ghost_block_placement_mode {
         // Main placement mode message
         let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
@@ -1131,23 +1772,487 @@ fn draw_enhanced_ui(game: &Game) {
                 strategy_color,
             );
         }
+    }
+}
+
+/// Draw Game Over overlay
+fn draw_game_over_overlay(game: &Game) {
+    // Semi-transparent dark overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+    
+    // Game Over message
+    let message = "GAME OVER";
+    let font_size = 60.0;
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 80.0;
+    
+    // Draw outline for better visibility
+    let outline_color = Color::new(0.0, 0.0, 0.0, 0.9);
+    for offset_x in [-3.0, 0.0, 3.0] {
+        for offset_y in [-3.0, 0.0, 3.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    message,
+                    center_x + offset_x,
+                    center_y + offset_y,
+                    font_size,
+                    outline_color,
+                );
+            }
+        }
+    }
+    
+    // Main text in bright red
+    draw_text(
+        message,
+        center_x,
+        center_y,
+        font_size,
+        Color::new(1.0, 0.2, 0.2, 1.0),
+    );
+    
+    // Final stats
+    let stats_lines = vec![
+        format!("Final Score: {}", game.score),
+        format!("Level Reached: {}", game.level()),
+        format!("Lines Cleared: {}", game.lines_cleared()),
+        format!("Time Played: {:.0}s", game.game_time),
+    ];
+    
+    let stats_y_start = center_y + 60.0;
+    for (i, stat) in stats_lines.iter().enumerate() {
+        let stat_width = measure_text(stat, None, 24, 1.0).width;
+        let stat_x = (WINDOW_WIDTH as f32 - stat_width) / 2.0;
+        let stat_y = stats_y_start + (i as f32 * 30.0);
         
-        let board_info = "Live Game Data";
+        // Stat outline
+        for offset_x in [-1.0, 0.0, 1.0] {
+            for offset_y in [-1.0, 0.0, 1.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        stat,
+                        stat_x + offset_x,
+                        stat_y + offset_y,
+                        24.0,
+                        Color::new(0.0, 0.0, 0.0, 0.8),
+                    );
+                }
+            }
+        }
+        
         draw_text(
-            board_info,
-            BOARD_OFFSET_X,
-            BOARD_OFFSET_Y - 15.0,
-            TEXT_SIZE * 0.6,
-            Color::new(0.6, 0.7, 0.8, 0.5),
+            stat,
+            stat_x,
+            stat_y,
+            24.0,
+            Color::new(1.0, 1.0, 0.8, 1.0),
         );
-    } else {
-        let board_info = "Live Game Data";
+    }
+    
+    // Instructions
+    let instruction = "Press R to restart or ESC to quit";
+    let inst_width = measure_text(instruction, None, 20, 1.0).width;
+    let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
+    let inst_y = stats_y_start + 180.0;
+    
+    // Instruction outline
+    for offset_x in [-1.0, 0.0, 1.0] {
+        for offset_y in [-1.0, 0.0, 1.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    instruction,
+                    inst_x + offset_x,
+                    inst_y + offset_y,
+                    20.0,
+                    Color::new(0.0, 0.0, 0.0, 0.8),
+                );
+            }
+        }
+    }
+    
+    draw_text(
+        instruction,
+        inst_x,
+        inst_y,
+        20.0,
+        Color::new(0.8, 0.8, 0.9, 1.0),
+    );
+}
+
+/// Draw Pause overlay
+fn draw_pause_overlay(_game: &Game) {
+    // Semi-transparent dark overlay
+    draw_rectangle(
+        0.0,
+        0.0,
+        WINDOW_WIDTH as f32,
+        WINDOW_HEIGHT as f32,
+        Color::new(0.0, 0.0, 0.0, 0.5),
+    );
+    
+    // Pause message
+    let message = "PAUSED";
+    let font_size = 50.0;
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 40.0;
+    
+    // Draw outline for better visibility
+    let outline_color = Color::new(0.0, 0.0, 0.0, 0.9);
+    for offset_x in [-2.0, 0.0, 2.0] {
+        for offset_y in [-2.0, 0.0, 2.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    message,
+                    center_x + offset_x,
+                    center_y + offset_y,
+                    font_size,
+                    outline_color,
+                );
+            }
+        }
+    }
+    
+    // Main text in bright cyan
+    draw_text(
+        message,
+        center_x,
+        center_y,
+        font_size,
+        Color::new(0.0, 1.0, 1.0, 1.0),
+    );
+    
+    // Instructions
+    let instruction = "Press P to resume";
+    let inst_width = measure_text(instruction, None, 24, 1.0).width;
+    let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
+    let inst_y = center_y + 60.0;
+    
+    // Instruction outline
+    for offset_x in [-1.0, 0.0, 1.0] {
+        for offset_y in [-1.0, 0.0, 1.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    instruction,
+                    inst_x + offset_x,
+                    inst_y + offset_y,
+                    24.0,
+                    Color::new(0.0, 0.0, 0.0, 0.8),
+                );
+            }
+        }
+    }
+    
+    draw_text(
+        instruction,
+        inst_x,
+        inst_y,
+        24.0,
+        Color::new(1.0, 1.0, 0.8, 1.0),
+    );
+}
+
+/// Show startup menu with load/new game options
+async fn show_startup_menu(save_path: &std::path::Path) -> Game {
+    loop {
+        // Clear screen
+        clear_background(Color::new(0.1, 0.05, 0.0, 1.0));
+        
+        // Draw title
+        let title = "RUST TETRIS";
+        let title_size = 60.0;
+        let title_width = measure_text(title, None, title_size as u16, 1.0).width;
+        let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
+        let title_y = 150.0;
+        
         draw_text(
-            board_info,
-            BOARD_OFFSET_X,
-            BOARD_OFFSET_Y - 15.0,
-            TEXT_SIZE * 0.8,
-            Color::new(0.8, 0.9, 1.0, 0.7),
+            title,
+            title_x,
+            title_y,
+            title_size,
+            Color::new(1.0, 1.0, 0.0, 1.0),
+        );
+        
+        // Draw subtitle
+        let subtitle = "Save file found!";
+        let subtitle_size = 30.0;
+        let subtitle_width = measure_text(subtitle, None, subtitle_size as u16, 1.0).width;
+        let subtitle_x = (WINDOW_WIDTH as f32 - subtitle_width) / 2.0;
+        let subtitle_y = 220.0;
+        
+        draw_text(
+            subtitle,
+            subtitle_x,
+            subtitle_y,
+            subtitle_size,
+            Color::new(0.8, 0.8, 1.0, 1.0),
+        );
+        
+        // Draw menu options
+        let option1 = "Press L to LOAD saved game";
+        let option2 = "Press N to start NEW game";
+        let option3 = "Press ESC to quit";
+        
+        let option_size = 24.0;
+        let option_y_start = 300.0;
+        let option_spacing = 40.0;
+        
+        let options = [option1, option2, option3];
+        let colors = [
+            Color::new(0.0, 1.0, 0.0, 1.0), // Green for load
+            Color::new(1.0, 0.8, 0.0, 1.0), // Orange for new
+            Color::new(1.0, 0.4, 0.4, 1.0), // Red for quit
+        ];
+        
+        for (i, (option, color)) in options.iter().zip(colors.iter()).enumerate() {
+            let option_width = measure_text(option, None, option_size as u16, 1.0).width;
+            let option_x = (WINDOW_WIDTH as f32 - option_width) / 2.0;
+            let option_y = option_y_start + (i as f32 * option_spacing);
+            
+            draw_text(
+                option,
+                option_x,
+                option_y,
+                option_size,
+                *color,
+            );
+        }
+        
+        // Handle input
+        if is_key_pressed(KeyCode::L) {
+            // Load saved game
+            match Game::load_from_file(save_path) {
+                Ok(game) => {
+                    log::info!("Loaded saved game successfully");
+                    return game;
+                },
+                Err(e) => {
+                    log::warn!("Failed to load save file: {}", e);
+                    // Fall back to new game
+                    return Game::new();
+                }
+            }
+        }
+        
+        if is_key_pressed(KeyCode::N) {
+            // Start new game
+            log::info!("Starting new game");
+            return Game::new();
+        }
+        
+        if is_key_pressed(KeyCode::Escape) {
+            std::process::exit(0);
+        }
+        
+        next_frame().await;
+    }
+}
+
+/// Draw animated TETRIS celebration message with rainbow colors and effects
+fn draw_tetris_celebration(game: &Game) {
+    let progress = game.get_tetris_celebration_progress();
+    
+    // Calculate animation phases
+    let fade_in_time = 0.2; // First 20% of animation
+    let stable_time = 0.6;  // 60% stable display
+    let fade_out_time = 0.2; // Last 20% fade out
+    
+    let alpha = if progress <= fade_in_time {
+        // Fade in phase
+        (progress / fade_in_time) as f32
+    } else if progress <= fade_in_time + stable_time {
+        // Stable phase
+        1.0
+    } else {
+        // Fade out phase
+        let fade_progress = (progress - fade_in_time - stable_time) / fade_out_time;
+        (1.0 - fade_progress) as f32
+    };
+    
+    // Scale effect - grows slightly then stabilizes
+    let scale = if progress <= fade_in_time {
+        0.5 + (progress / fade_in_time) as f32 * 0.7 // Grow from 0.5x to 1.2x
+    } else if progress <= fade_in_time + 0.1 {
+        1.2 - ((progress - fade_in_time) / 0.1) as f32 * 0.2 // Shrink back to 1.0x
+    } else {
+        1.0
+    };
+    
+    // Center the message on screen
+    let base_font_size = 80.0;
+    let font_size = base_font_size * scale;
+    let message = "TETRIS!";
+    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
+    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let center_y = WINDOW_HEIGHT as f32 / 2.0 - 50.0;
+    
+    // Background glow effect
+    let glow_size = 400.0 * scale;
+    let glow_alpha = alpha * 0.3;
+    draw_rectangle(
+        center_x - (glow_size - text_width) / 2.0,
+        center_y - glow_size / 4.0,
+        glow_size,
+        glow_size / 2.0,
+        Color::new(1.0, 1.0, 1.0, glow_alpha * 0.1),
+    );
+    
+    // Draw each letter with animated rainbow colors
+    let time_offset = game.get_tetris_celebration_progress() * 8.0; // Speed of color animation
+    let letter_spacing = font_size * 0.7;
+    
+    for (i, c) in message.chars().enumerate() {
+        if c == '!' {
+            continue; // Handle exclamation point separately
+        }
+        
+        let letter_x = center_x + (i as f32 * letter_spacing);
+        
+        // Create rainbow effect with time-based animation
+        let hue = ((i as f64 * 0.5) + time_offset) % 6.0;
+        let rainbow_color = hsv_to_rgb(hue, 1.0, 1.0);
+        let final_color = Color::new(
+            rainbow_color.r,
+            rainbow_color.g,
+            rainbow_color.b,
+            alpha,
+        );
+        
+        // Draw letter with outline for better visibility
+        let outline_color = Color::new(0.0, 0.0, 0.0, alpha * 0.8);
+        
+        // Draw outline (multiple passes for thickness)
+        for offset_x in [-2.0, 0.0, 2.0] {
+            for offset_y in [-2.0, 0.0, 2.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        &c.to_string(),
+                        letter_x + offset_x,
+                        center_y + offset_y,
+                        font_size,
+                        outline_color,
+                    );
+                }
+            }
+        }
+        
+        // Draw main letter
+        draw_text(
+            &c.to_string(),
+            letter_x,
+            center_y,
+            font_size,
+            final_color,
+        );
+        
+        // Add sparkle effect around letters
+        if progress > 0.1 {
+            let sparkle_count = 3;
+            for j in 0..sparkle_count {
+                let sparkle_time = (game.get_tetris_celebration_progress() * 6.0 + i as f64 * 0.5 + j as f64) % 1.0;
+                let sparkle_alpha = (sparkle_time.sin() * 0.5 + 0.5) as f32 * alpha * 0.8;
+                
+                if sparkle_alpha > 0.3 {
+                    let angle = sparkle_time * 6.28 + j as f64; // Full rotation
+                    let distance = 40.0 + sparkle_time as f32 * 20.0;
+                    let sparkle_x = letter_x + angle.cos() as f32 * distance;
+                    let sparkle_y = center_y + angle.sin() as f32 * distance * 0.5;
+                    
+                    let sparkle_size = 3.0 + sparkle_alpha * 2.0;
+                    draw_rectangle(
+                        sparkle_x - sparkle_size / 2.0,
+                        sparkle_y - sparkle_size / 2.0,
+                        sparkle_size,
+                        sparkle_size,
+                        Color::new(1.0, 1.0, 1.0, sparkle_alpha),
+                    );
+                }
+            }
+        }
+    }
+    
+    // Draw exclamation point with special pulsing effect
+    let excl_x = center_x + (5.0 * letter_spacing);
+    let pulse = (game.get_tetris_celebration_progress() * 12.0).sin() as f32 * 0.2 + 1.0;
+    let excl_scale = scale * pulse;
+    let excl_font_size = font_size * excl_scale;
+    
+    // Exclamation point gets extra bright yellow color
+    let excl_color = Color::new(1.0, 1.0, 0.3, alpha);
+    let excl_outline = Color::new(0.0, 0.0, 0.0, alpha * 0.8);
+    
+    // Draw exclamation outline
+    for offset_x in [-2.0, 0.0, 2.0] {
+        for offset_y in [-2.0, 0.0, 2.0] {
+            if offset_x != 0.0 || offset_y != 0.0 {
+                draw_text(
+                    "!",
+                    excl_x + offset_x,
+                    center_y + offset_y,
+                    excl_font_size,
+                    excl_outline,
+                );
+            }
+        }
+    }
+    
+    // Draw exclamation point
+    draw_text(
+        "!",
+        excl_x,
+        center_y,
+        excl_font_size,
+        excl_color,
+    );
+    
+    // Subtitle message
+    if progress > 0.3 {
+        let subtitle = "4 LINES CLEARED!";
+        let subtitle_alpha = ((progress - 0.3) / 0.7) as f32 * alpha;
+        let subtitle_size = 24.0 * scale;
+        let subtitle_width = measure_text(subtitle, None, subtitle_size as u16, 1.0).width;
+        let subtitle_x = (WINDOW_WIDTH as f32 - subtitle_width) / 2.0;
+        let subtitle_y = center_y + font_size + 20.0;
+        
+        // Subtitle uses cycling rainbow colors too
+        let subtitle_hue = (time_offset * 0.7) % 6.0;
+        let subtitle_rainbow = hsv_to_rgb(subtitle_hue, 0.8, 1.0);
+        let subtitle_color = Color::new(
+            subtitle_rainbow.r,
+            subtitle_rainbow.g,
+            subtitle_rainbow.b,
+            subtitle_alpha,
+        );
+        
+        // Subtitle outline
+        let subtitle_outline = Color::new(0.0, 0.0, 0.0, subtitle_alpha * 0.8);
+        for offset_x in [-1.0, 0.0, 1.0] {
+            for offset_y in [-1.0, 0.0, 1.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        subtitle,
+                        subtitle_x + offset_x,
+                        subtitle_y + offset_y,
+                        subtitle_size,
+                        subtitle_outline,
+                    );
+                }
+            }
+        }
+        
+        draw_text(
+            subtitle,
+            subtitle_x,
+            subtitle_y,
+            subtitle_size,
+            subtitle_color,
         );
     }
 }

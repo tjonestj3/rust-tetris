@@ -3,9 +3,14 @@
 use crate::board::{Board, Cell};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::game::config::*;
+use serde::{Serialize, Deserialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::fs;
+use std::path::Path;
 
 /// Game states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameState {
     Menu,
     Playing,
@@ -14,7 +19,7 @@ pub enum GameState {
 }
 
 /// Main game struct
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Game {
     /// Current game state
     pub state: GameState,
@@ -68,6 +73,20 @@ pub struct Game {
     pub piece_is_locking: bool,
     /// Number of times lock delay has been reset for current piece
     pub lock_resets: u32,
+    
+    /// TETRIS celebration state
+    pub tetris_celebration_active: bool,
+    /// TETRIS celebration timer for animation
+    pub tetris_celebration_timer: f64,
+    
+    /// Ghost block throwing animation state
+    pub ghost_throw_active: bool,
+    /// Ghost block throwing animation timer
+    pub ghost_throw_timer: f64,
+    /// Target position for ghost block throw
+    pub ghost_throw_target: (i32, i32),
+    /// Starting position for throw animation
+    pub ghost_throw_start: (f32, f32),
 }
 
 impl Game {
@@ -101,6 +120,14 @@ impl Game {
             lock_delay_timer: 0.0,
             piece_is_locking: false,
             lock_resets: 0,
+            
+            tetris_celebration_active: false,
+            tetris_celebration_timer: 0.0,
+            
+            ghost_throw_active: false,
+            ghost_throw_timer: 0.0,
+            ghost_throw_target: (0, 0),
+            ghost_throw_start: (0.0, 0.0),
         };
         
         // Spawn the first piece
@@ -134,6 +161,23 @@ impl Game {
         self.left_move_timer += delta_time;
         self.right_move_timer += delta_time;
         self.ghost_block_blink_timer += delta_time;
+        
+        // Update TETRIS celebration timer
+        if self.tetris_celebration_active {
+            self.tetris_celebration_timer += delta_time;
+            if self.tetris_celebration_timer >= TETRIS_CELEBRATION_TIME {
+                self.tetris_celebration_active = false;
+                self.tetris_celebration_timer = 0.0;
+            }
+        }
+        
+        // Update ghost throw animation timer
+        if self.ghost_throw_active {
+            self.ghost_throw_timer += delta_time;
+            if self.ghost_throw_timer >= GHOST_THROW_ANIMATION_TIME {
+                self.finish_ghost_throw();
+            }
+        }
         
         // Update lock delay timer if piece is in locking state
         if self.piece_is_locking {
@@ -268,9 +312,29 @@ impl Game {
             piece.move_by(dx, dy);
             
             if self.is_piece_valid(&piece) {
-                self.current_piece = Some(piece);
-                // Reset lock delay on successful horizontal movement
-                self.reset_lock_delay();
+                self.current_piece = Some(piece.clone());
+                
+                // Only reset lock delay for horizontal movement and rotations,
+                // and only if the piece can still move down after the movement
+                if dx != 0 { // Horizontal movement
+                    // Check if piece can still fall after horizontal movement
+                    let mut test_piece = piece.clone();
+                    test_piece.move_by(0, 1);
+                    if self.is_piece_valid(&test_piece) {
+                        // Piece can still fall, reset lock delay
+                        self.reset_lock_delay();
+                    } else {
+                        // Piece is still grounded, only reset if not already locking
+                        // This prevents the floating bug while still allowing some movement
+                        if !self.piece_is_locking {
+                            self.piece_is_locking = true;
+                            self.lock_delay_timer = 0.0;
+                        } else {
+                            // Reduce remaining lock time for horizontal sliding on ground
+                            self.reset_lock_delay_with_reduced_time();
+                        }
+                    }
+                }
                 return true;
             }
         }
@@ -358,6 +422,13 @@ impl Game {
             let lines_cleared = self.board.clear_lines(&self.clearing_lines);
             self.add_score_for_lines(lines_cleared);
             
+            // Check for TETRIS celebration (4 lines cleared at once)
+            if lines_cleared == 4 {
+                self.tetris_celebration_active = true;
+                self.tetris_celebration_timer = 0.0;
+                log::info!("TETRIS! 4 lines cleared - starting celebration!");
+            }
+            
             // Award ghost block every 4 lines cleared
             let total_lines_before = self.board.lines_cleared() - lines_cleared;
             let total_lines_after = self.board.lines_cleared();
@@ -444,6 +515,55 @@ impl Game {
     /// Check if lines are currently being cleared (for rendering)
     pub fn is_clearing_lines(&self) -> bool {
         !self.clearing_lines.is_empty()
+    }
+    
+    /// Save the game state to a file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        log::info!("Game saved successfully");
+        Ok(())
+    }
+    
+    /// Load the game state from a file
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let json = fs::read_to_string(path)?;
+        let game: Game = serde_json::from_str(&json)?;
+        log::info!("Game loaded successfully");
+        Ok(game)
+    }
+    
+    /// Check if a save file exists
+    pub fn save_file_exists<P: AsRef<Path>>(path: P) -> bool {
+        path.as_ref().exists()
+    }
+    
+    /// Get the default save file path
+    pub fn default_save_path() -> std::path::PathBuf {
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("tetris_save.json")
+    }
+    
+    /// Get a hash of the current game state for efficient change detection
+    pub fn get_state_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        // Hash key game state components that matter for saves
+        self.score.hash(&mut hasher);
+        self.board.lines_cleared().hash(&mut hasher);
+        self.board.level().hash(&mut hasher);
+        self.ghost_blocks_available.hash(&mut hasher);
+        // Hash current piece position and type
+        if let Some(ref piece) = self.current_piece {
+            piece.piece_type.hash(&mut hasher);
+            piece.position.hash(&mut hasher);
+            piece.rotation.hash(&mut hasher);
+        }
+        self.next_piece.hash(&mut hasher);
+        self.held_piece.hash(&mut hasher);
+        // Hash filled cells in board (simplified)
+        self.board.filled_cells_count().hash(&mut hasher);
+        hasher.finish()
     }
     
     /// Get the lines being cleared (for animation rendering)
@@ -534,6 +654,17 @@ impl Game {
         }
     }
     
+    /// Reset lock delay with reduced time window for horizontal sliding on grounded pieces
+    fn reset_lock_delay_with_reduced_time(&mut self) {
+        // Only reset if we haven't exceeded the maximum number of resets
+        if self.lock_resets < MAX_LOCK_RESETS {
+            // Don't fully reset locking state - just give a bit more time
+            // This tightens the lock delay window for pieces sliding on the ground
+            self.lock_delay_timer = (self.lock_delay_timer - 0.05).max(0.0);
+            self.lock_resets += 1;
+        }
+    }
+    
     /// Calculate where the current piece will land (ghost piece position)
     pub fn calculate_ghost_piece(&self) -> Option<Tetromino> {
         if let Some(mut ghost_piece) = self.current_piece.clone() {
@@ -565,7 +696,16 @@ impl Game {
                 // Analyze board and find smart positions
                 self.analyze_smart_positions();
                 self.ghost_block_blink_timer = 0.0;
-                log::info!("Ghost block placement mode activated with smart positioning");
+                log::info!("Ghost block placement mode activated - targeting strategic positions in rows with existing blocks");
+                
+                // Auto-fire if the best position only needs 1 block (instant TETRIS setup)
+                if let Some(&(x, y, blocks_needed)) = self.ghost_smart_positions.first() {
+                    if blocks_needed == 1 {
+                        log::info!("Auto-firing ghost block for optimal 1-block position at ({}, {})", x, y);
+                        self.start_ghost_throw(x, y);
+                        return; // Exit placement mode immediately
+                    }
+                }
             } else {
                 log::info!("Ghost block placement mode deactivated");
                 self.ghost_smart_positions.clear();
@@ -628,26 +768,16 @@ impl Game {
         None
     }
     
-    /// Place a ghost block at the current cursor position
+    /// Place a ghost block at the current cursor position (with throwing animation)
     pub fn place_ghost_block(&mut self) -> bool {
-        if self.ghost_block_placement_mode && self.ghost_blocks_available > 0 {
+        if self.ghost_block_placement_mode && self.ghost_blocks_available > 0 && !self.ghost_throw_active {
             let (x, y) = self.ghost_block_cursor;
             
             // Check if position is valid (empty)
             if let Some(cell) = self.board.get_cell(x, y) {
                 if cell.is_empty() {
-                    // Place the ghost block
-                    self.board.set_cell(x, y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0))); // Light blue ghost block
-                    self.ghost_blocks_available -= 1;
-                    self.ghost_block_placement_mode = false;
-                    
-                    // Check if this placement creates any complete lines
-                    let complete_lines = self.board.find_complete_lines();
-                    if !complete_lines.is_empty() {
-                        self.start_line_clear_animation(complete_lines);
-                    }
-                    
-                    log::info!("Ghost block placed at ({}, {}). Remaining: {}", x, y, self.ghost_blocks_available);
+                    // Start throwing animation instead of instant placement
+                    self.start_ghost_throw(x, y);
                     return true;
                 }
             }
@@ -664,19 +794,24 @@ impl Game {
     pub fn analyze_smart_positions(&mut self) {
         let mut positions = Vec::new();
         
-        // Check each empty position on the board
+        // Check each empty position on the board, but only on rows that have existing blocks
         for y in BUFFER_HEIGHT..(BOARD_HEIGHT + BUFFER_HEIGHT) {
-            for x in 0..BOARD_WIDTH {
-                let x_i32 = x as i32;
-                let y_i32 = y as i32;
-                
-                // Only consider empty positions
-                if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
-                    if cell.is_empty() {
-                        // Calculate how many blocks are needed to complete this line
-                        let blocks_needed = self.calculate_blocks_needed_for_line(y);
-                        if blocks_needed > 0 {
-                            positions.push((x_i32, y_i32, blocks_needed));
+            // First, check if this row has any existing blocks
+            let row_has_blocks = self.row_has_existing_blocks(y);
+            
+            if row_has_blocks {
+                for x in 0..BOARD_WIDTH {
+                    let x_i32 = x as i32;
+                    let y_i32 = y as i32;
+                    
+                    // Only consider empty positions
+                    if let Some(cell) = self.board.get_cell(x_i32, y_i32) {
+                        if cell.is_empty() {
+                            // Calculate how many blocks are needed to complete this line
+                            let blocks_needed = self.calculate_blocks_needed_for_line(y);
+                            if blocks_needed > 0 {
+                                positions.push((x_i32, y_i32, blocks_needed));
+                            }
                         }
                     }
                 }
@@ -715,7 +850,19 @@ impl Game {
             self.ghost_block_cursor = (x, y);
         }
         
-        log::info!("Found {} smart positions for ghost block placement", self.ghost_smart_positions.len());
+        log::info!("Found {} smart positions for strategic ghost block placement (only targeting rows with existing blocks)", self.ghost_smart_positions.len());
+    }
+    
+    /// Check if a row has any existing blocks (not completely empty)
+    fn row_has_existing_blocks(&self, line_y: usize) -> bool {
+        for x in 0..BOARD_WIDTH {
+            if let Some(cell) = self.board.get_cell(x as i32, line_y as i32) {
+                if cell.is_filled() {
+                    return true;
+                }
+            }
+        }
+        false
     }
     
     /// Calculate how many blocks are needed to complete a specific line
@@ -729,6 +876,76 @@ impl Game {
             }
         }
         empty_count
+    }
+    
+    /// Check if TETRIS celebration is currently active
+    pub fn is_tetris_celebration_active(&self) -> bool {
+        self.tetris_celebration_active
+    }
+    
+    /// Get the TETRIS celebration animation progress (0.0 to 1.0)
+    pub fn get_tetris_celebration_progress(&self) -> f64 {
+        if self.tetris_celebration_active {
+            (self.tetris_celebration_timer / TETRIS_CELEBRATION_TIME).min(1.0)
+        } else {
+            0.0
+        }
+    }
+    
+    /// Start ghost block throwing animation
+    fn start_ghost_throw(&mut self, target_x: i32, target_y: i32) {
+        // Calculate starting position (off-screen or from a corner)
+        let start_x = BOARD_OFFSET_X - 100.0; // Start from left side off-screen
+        let start_y = BOARD_OFFSET_Y + 50.0;  // Slightly below board top
+        
+        self.ghost_throw_active = true;
+        self.ghost_throw_timer = 0.0;
+        self.ghost_throw_target = (target_x, target_y);
+        self.ghost_throw_start = (start_x, start_y);
+        self.ghost_block_placement_mode = false; // Exit placement mode
+        
+        log::info!("Starting ghost block throw animation to ({}, {})", target_x, target_y);
+    }
+    
+    /// Finish ghost block throwing animation and place the block
+    fn finish_ghost_throw(&mut self) {
+        let (target_x, target_y) = self.ghost_throw_target;
+        
+        // Actually place the block now
+        self.board.set_cell(target_x, target_y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0)));
+        self.ghost_blocks_available -= 1;
+        
+        // Check if this placement creates any complete lines
+        let complete_lines = self.board.find_complete_lines();
+        if !complete_lines.is_empty() {
+            self.start_line_clear_animation(complete_lines);
+        }
+        
+        // Reset animation state
+        self.ghost_throw_active = false;
+        self.ghost_throw_timer = 0.0;
+        
+        log::info!("Ghost block thrown and placed at ({}, {}). Remaining: {}", 
+                  target_x, target_y, self.ghost_blocks_available);
+    }
+    
+    /// Check if ghost throw animation is currently active
+    pub fn is_ghost_throw_active(&self) -> bool {
+        self.ghost_throw_active
+    }
+    
+    /// Get current throw animation progress and positions
+    pub fn get_ghost_throw_info(&self) -> Option<(f64, (f32, f32), (f32, f32))> {
+        if self.ghost_throw_active {
+            let progress = (self.ghost_throw_timer / GHOST_THROW_ANIMATION_TIME).min(1.0);
+            let target_screen = (
+                BOARD_OFFSET_X + (self.ghost_throw_target.0 as f32 * CELL_SIZE) + CELL_SIZE / 2.0,
+                BOARD_OFFSET_Y + ((self.ghost_throw_target.1 - BUFFER_HEIGHT as i32) as f32 * CELL_SIZE) + CELL_SIZE / 2.0
+            );
+            Some((progress, self.ghost_throw_start, target_screen))
+        } else {
+            None
+        }
     }
 }
 
