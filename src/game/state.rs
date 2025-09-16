@@ -269,8 +269,28 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
-                // Reset lock delay on successful horizontal movement
-                self.reset_lock_delay();
+                
+                // Only reset lock delay for horizontal movement and rotations,
+                // and only if the piece can still move down after the movement
+                if dx != 0 { // Horizontal movement
+                    // Check if piece can still fall after horizontal movement
+                    let mut test_piece = piece.clone();
+                    test_piece.move_by(0, 1);
+                    if self.is_piece_valid(&test_piece) {
+                        // Piece can still fall, reset lock delay
+                        self.reset_lock_delay();
+                    } else {
+                        // Piece is still grounded, only reset if not already locking
+                        // This prevents the floating bug while still allowing some movement
+                        if !self.piece_is_locking {
+                            self.piece_is_locking = true;
+                            self.lock_delay_timer = 0.0;
+                        } else {
+                            // Reduce remaining lock time for horizontal sliding on ground
+                            self.reset_lock_delay_with_reduced_time();
+                        }
+                    }
+                }
                 return true;
             }
         }
@@ -530,6 +550,17 @@ impl Game {
         if self.lock_resets < MAX_LOCK_RESETS {
             self.piece_is_locking = false;
             self.lock_delay_timer = 0.0;
+            self.lock_resets += 1;
+        }
+    }
+    
+    /// Reset lock delay with reduced time window for horizontal sliding on grounded pieces
+    fn reset_lock_delay_with_reduced_time(&mut self) {
+        // Only reset if we haven't exceeded the maximum number of resets
+        if self.lock_resets < MAX_LOCK_RESETS {
+            // Don't fully reset locking state - just give a bit more time
+            // This tightens the lock delay window for pieces sliding on the ground
+            self.lock_delay_timer = (self.lock_delay_timer - 0.05).max(0.0);
             self.lock_resets += 1;
         }
     }
