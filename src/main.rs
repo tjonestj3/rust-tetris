@@ -2030,54 +2030,105 @@ fn draw_pause_overlay(_game: &Game) {
 
 /// Show startup menu with load/new game options
 async fn show_startup_menu(save_path: &std::path::Path) -> Game {
+    // Create background texture once (same as main game)
+    let background_texture = Texture2D::from_image(&create_chess_background());
+    
     loop {
-        // Clear screen
-        clear_background(Color::new(0.1, 0.05, 0.0, 1.0));
+        // Clear screen with dark background
+        clear_background(BACKGROUND_COLOR);
         
-        // Draw title
+        // Draw magical background (same as main game)
+        draw_texture(
+            &background_texture,
+            0.0,
+            0.0,
+            WHITE,
+        );
+        
+        // Draw semi-transparent overlay for better text readability
+        draw_rectangle(
+            0.0,
+            0.0,
+            WINDOW_WIDTH as f32,
+            WINDOW_HEIGHT as f32,
+            Color::new(0.0, 0.0, 0.0, 0.5), // Slightly darker for menu readability
+        );
+        
+        // Draw enhanced title with glow effect
         let title = "RUST TETRIS";
-        let title_size = 60.0;
+        let title_size = 70.0;
         let title_width = measure_text(title, None, title_size as u16, 1.0).width;
         let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
         let title_y = 150.0;
         
+        // Title glow/outline effect
+        for offset_x in [-2.0, -1.0, 0.0, 1.0, 2.0] {
+            for offset_y in [-2.0, -1.0, 0.0, 1.0, 2.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        title,
+                        title_x + offset_x,
+                        title_y + offset_y,
+                        title_size,
+                        Color::new(0.0, 0.0, 0.0, 0.8),
+                    );
+                }
+            }
+        }
+        
+        // Main title with rainbow effect
         draw_text(
             title,
             title_x,
             title_y,
             title_size,
-            Color::new(1.0, 1.0, 0.0, 1.0),
+            Color::new(0.0, 1.0, 1.0, 1.0), // Bright cyan
         );
         
-        // Draw subtitle
-        let subtitle = "Save file found!";
-        let subtitle_size = 30.0;
+        // Draw magical subtitle with pulsing effect
+        let subtitle = "⭐ Save file found! ⭐";
+        let subtitle_size = 32.0;
         let subtitle_width = measure_text(subtitle, None, subtitle_size as u16, 1.0).width;
         let subtitle_x = (WINDOW_WIDTH as f32 - subtitle_width) / 2.0;
-        let subtitle_y = 220.0;
+        let subtitle_y = 230.0;
+        
+        // Subtitle outline
+        for offset_x in [-1.0, 0.0, 1.0] {
+            for offset_y in [-1.0, 0.0, 1.0] {
+                if offset_x != 0.0 || offset_y != 0.0 {
+                    draw_text(
+                        subtitle,
+                        subtitle_x + offset_x,
+                        subtitle_y + offset_y,
+                        subtitle_size,
+                        Color::new(0.0, 0.0, 0.0, 0.9),
+                    );
+                }
+            }
+        }
         
         draw_text(
             subtitle,
             subtitle_x,
             subtitle_y,
             subtitle_size,
-            Color::new(0.8, 0.8, 1.0, 1.0),
+            Color::new(1.0, 0.9, 0.3, 1.0), // Golden color
         );
         
-        // Draw menu options
-        let option1 = "Press L to LOAD saved game";
-        let option2 = "Press N to start NEW game";
-        let option3 = "Press ESC to quit";
+        // Draw enhanced menu options with magical styling
+        let option1 = "🔮 Press L to LOAD saved game";
+        let option2 = "⚡ Press N to start NEW game";
+        let option3 = "❌ Press ESC to quit";
         
-        let option_size = 24.0;
-        let option_y_start = 300.0;
-        let option_spacing = 40.0;
+        let option_size = 26.0;
+        let option_y_start = 320.0;
+        let option_spacing = 50.0;
         
         let options = [option1, option2, option3];
         let colors = [
-            Color::new(0.0, 1.0, 0.0, 1.0), // Green for load
-            Color::new(1.0, 0.8, 0.0, 1.0), // Orange for new
-            Color::new(1.0, 0.4, 0.4, 1.0), // Red for quit
+            Color::new(0.3, 1.0, 0.3, 1.0), // Bright green for load
+            Color::new(1.0, 0.8, 0.2, 1.0), // Golden orange for new
+            Color::new(1.0, 0.3, 0.3, 1.0), // Bright red for quit
         ];
         
         for (i, (option, color)) in options.iter().zip(colors.iter()).enumerate() {
@@ -2085,12 +2136,80 @@ async fn show_startup_menu(save_path: &std::path::Path) -> Game {
             let option_x = (WINDOW_WIDTH as f32 - option_width) / 2.0;
             let option_y = option_y_start + (i as f32 * option_spacing);
             
+            // Option outline for better readability
+            for offset_x in [-1.0, 0.0, 1.0] {
+                for offset_y in [-1.0, 0.0, 1.0] {
+                    if offset_x != 0.0 || offset_y != 0.0 {
+                        draw_text(
+                            option,
+                            option_x + offset_x,
+                            option_y + offset_y,
+                            option_size,
+                            Color::new(0.0, 0.0, 0.0, 0.9),
+                        );
+                    }
+                }
+            }
+            
             draw_text(
                 option,
                 option_x,
                 option_y,
                 option_size,
                 *color,
+            );
+        }
+        
+        // Add magical floating particles effect
+        let time = get_time() as f32;
+        for i in 0..20 {
+            let particle_phase = (time * 0.3 + i as f32 * 0.5) % 6.28;
+            let x_base = (WINDOW_WIDTH as f32 / 20.0) * (i as f32 + 1.0);
+            let y_offset = (particle_phase.sin() * 30.0) + (time * 0.2 + i as f32).sin() * 15.0;
+            let y_pos = 100.0 + y_offset;
+            
+            // Vary particle colors
+            let hue = (i as f64 * 0.3 + time as f64 * 0.5) % 6.0;
+            let particle_color = hsv_to_rgb(hue, 0.8, 0.9);
+            let alpha = (0.3 + 0.4 * ((time * 0.8 + i as f32 * 0.3).sin() * 0.5 + 0.5)) * 0.7;
+            
+            let size = 2.0 + ((time * 0.6 + i as f32 * 0.4).cos() * 0.5 + 0.5) * 3.0;
+            
+            draw_rectangle(
+                x_base - size / 2.0,
+                y_pos - size / 2.0,
+                size,
+                size,
+                Color::new(particle_color.r, particle_color.g, particle_color.b, alpha),
+            );
+            
+            // Add small glow around particles
+            draw_rectangle(
+                x_base - size,
+                y_pos - size,
+                size * 2.0,
+                size * 2.0,
+                Color::new(particle_color.r, particle_color.g, particle_color.b, alpha * 0.2),
+            );
+        }
+        
+        // Add magical glow effect around the entire menu area
+        let menu_center_x = WINDOW_WIDTH as f32 / 2.0;
+        let menu_center_y = WINDOW_HEIGHT as f32 / 2.0;
+        let glow_radius = 300.0 + (time * 0.8).sin() * 20.0;
+        let glow_alpha = 0.1 + (time * 0.5).sin() * 0.05;
+        
+        // Draw concentric glow circles
+        for ring in 1..6 {
+            let ring_radius = glow_radius * (ring as f32 / 6.0);
+            let ring_alpha = glow_alpha / (ring as f32);
+            
+            draw_rectangle(
+                menu_center_x - ring_radius,
+                menu_center_y - ring_radius,
+                ring_radius * 2.0,
+                ring_radius * 2.0,
+                Color::new(0.2, 0.4, 1.0, ring_alpha),
             );
         }
         
