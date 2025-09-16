@@ -56,7 +56,7 @@
 - **Multiple Input Methods** - Support for both arrow keys and WASD
 
 ### 🎨 **VISUAL EXCELLENCE**
-- **Retro Chess Background** - Procedurally generated fiery chess pattern backdrop
+- **Retro Space Background** - Procedurally generated space pattern backdrop
 - **Enhanced UI** - Clean, readable interface with real-time statistics
 - **Particle Effects** - Magical fireball trails and explosive animations
 - **Color-Coded Pieces** - Each Tetromino has its own distinctive color
