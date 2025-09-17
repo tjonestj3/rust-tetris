@@ -69,6 +69,18 @@ pub const HOLD_SIZE: f32 = 4.0 * CELL_SIZE;
 /// Game window title
 pub const WINDOW_TITLE: &str = "Rust Tetris";
 
+/// Legacy mode settings (inspired by Pajitnov's original terminal version)
+/// Legacy mode displays blocks as simple ASCII characters instead of graphical rectangles
+pub const LEGACY_BLOCK_CHAR: &str = "█";  // Full block character for filled cells
+pub const LEGACY_EMPTY_CHAR: &str = " ";  // Space for empty cells
+pub const LEGACY_GRID_CHAR: &str = "·";   // Middle dot for grid lines in legacy mode
+
+/// Legacy mode colors (terminal green on black theme)
+pub const LEGACY_BACKGROUND_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 1.0); // Pure black
+pub const LEGACY_TEXT_COLOR: (f32, f32, f32, f32) = (0.0, 1.0, 0.0, 1.0);       // Bright green
+pub const LEGACY_GRID_COLOR: (f32, f32, f32, f32) = (0.0, 0.5, 0.0, 0.6);       // Darker green for grid
+pub const LEGACY_HIGHLIGHT_COLOR: (f32, f32, f32, f32) = (0.0, 1.0, 0.5, 1.0);   // Cyan-green for highlights
+
 /// Debug settings
 pub const DEBUG_MODE: bool = cfg!(debug_assertions);
 pub const SHOW_FPS: bool = DEBUG_MODE;

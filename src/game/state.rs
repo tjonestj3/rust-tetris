@@ -87,6 +87,9 @@ pub struct Game {
     pub ghost_throw_target: (i32, i32),
     /// Starting position for throw animation
     pub ghost_throw_start: (f32, f32),
+    
+    /// Legacy mode flag - when true, renders blocks as ASCII characters like Pajitnov's original
+    pub legacy_mode: bool,
 }
 
 impl Game {
@@ -128,6 +131,8 @@ impl Game {
             ghost_throw_timer: 0.0,
             ghost_throw_target: (0, 0),
             ghost_throw_start: (0.0, 0.0),
+            
+            legacy_mode: false, // Start in modern mode by default
         };
         
         // Spawn the first piece
@@ -398,6 +403,17 @@ impl Game {
     /// Reset the game
     pub fn reset(&mut self) {
         *self = Self::new();
+    }
+    
+    /// Toggle legacy mode (inspired by Pajitnov's original terminal version)
+    pub fn toggle_legacy_mode(&mut self) {
+        self.legacy_mode = !self.legacy_mode;
+        log::info!("Legacy mode {}", if self.legacy_mode { "ENABLED - Switching to terminal-style ASCII blocks" } else { "DISABLED - Switching to modern graphics" });
+    }
+    
+    /// Check if legacy mode is currently active
+    pub fn is_legacy_mode(&self) -> bool {
+        self.legacy_mode
     }
     
     /// Get current level
