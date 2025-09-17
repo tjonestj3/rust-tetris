@@ -3006,19 +3006,26 @@ fn draw_tetris_celebration(game: &Game) {
         1.0
     };
     
-    // Center the message on screen
+    // Center the message on screen (based on our actual per-letter spacing)
     let base_font_size = 80.0;
     let font_size = base_font_size * scale;
-    let message = "TETRIS!";
-    let text_width = measure_text(message, None, font_size as u16, 1.0).width;
-    let center_x = (WINDOW_WIDTH as f32 - text_width) / 2.0;
+    let message = "JONES'IN!";
     let center_y = WINDOW_HEIGHT as f32 / 2.0 - 50.0;
     
-    // Background glow effect
+    // Per-letter layout parameters
+    let time_offset = game.get_tetris_celebration_progress() * 8.0; // Speed of color animation
+    let letter_spacing = font_size * 0.7;
+    let chars: Vec<char> = message.chars().collect();
+    let non_excl_count = chars.iter().filter(|&&ch| ch != '!').count() as f32;
+    let total_letters_width = if non_excl_count <= 1.0 { 0.0 } else { (non_excl_count - 1.0) * letter_spacing };
+    let base_x = (WINDOW_WIDTH as f32 - total_letters_width) / 2.0;
+    let midline_x = base_x + total_letters_width / 2.0;
+    
+    // Background glow effect centered to our drawn layout
     let glow_size = 400.0 * scale;
     let glow_alpha = alpha * 0.3;
     draw_rectangle(
-        center_x - (glow_size - text_width) / 2.0,
+        midline_x - glow_size / 2.0,
         center_y - glow_size / 4.0,
         glow_size,
         glow_size / 2.0,
@@ -3026,18 +3033,17 @@ fn draw_tetris_celebration(game: &Game) {
     );
     
     // Draw each letter with animated rainbow colors
-    let time_offset = game.get_tetris_celebration_progress() * 8.0; // Speed of color animation
-    let letter_spacing = font_size * 0.7;
-    
-    for (i, c) in message.chars().enumerate() {
+    let mut draw_index_without_excl = 0usize; // index among non-'!' characters only
+    for &c in &chars {
         if c == '!' {
             continue; // Handle exclamation point separately
         }
         
-        let letter_x = center_x + (i as f32 * letter_spacing);
+        let letter_x = base_x + (draw_index_without_excl as f32) * letter_spacing;
+        draw_index_without_excl += 1;
         
         // Create rainbow effect with time-based animation
-        let hue = ((i as f64 * 0.5) + time_offset) % 6.0;
+        let hue = ((draw_index_without_excl as f64 * 0.5) + time_offset) % 6.0;
         let rainbow_color = hsv_to_rgb(hue, 1.0, 1.0);
         let final_color = Color::new(
             rainbow_color.r,
@@ -3077,7 +3083,7 @@ fn draw_tetris_celebration(game: &Game) {
         if progress > 0.1 {
             let sparkle_count = 3;
             for j in 0..sparkle_count {
-                let sparkle_time = (game.get_tetris_celebration_progress() * 6.0 + i as f64 * 0.5 + j as f64) % 1.0;
+                let sparkle_time = (game.get_tetris_celebration_progress() * 6.0 + (draw_index_without_excl - 1) as f64 * 0.5 + j as f64) % 1.0;
                 let sparkle_alpha = (sparkle_time.sin() * 0.5 + 0.5) as f32 * alpha * 0.8;
                 
                 if sparkle_alpha > 0.3 {
@@ -3100,7 +3106,15 @@ fn draw_tetris_celebration(game: &Game) {
     }
     
     // Draw exclamation point with special pulsing effect
-    let excl_x = center_x + (5.0 * letter_spacing);
+    // Position it exactly where '!' appears in the message using our per-letter layout
+    let excl_draw_pos_without_excl = if let Some(excl_idx) = chars.iter().position(|&ch| ch == '!') {
+        // Count how many non-'!' chars come before '!'
+        chars[..excl_idx].iter().filter(|&&ch| ch != '!').count()
+    } else {
+        // If no '!' present, place it after the last character
+        non_excl_count as usize
+    };
+    let excl_x = base_x + (excl_draw_pos_without_excl as f32) * letter_spacing;
     let pulse = (game.get_tetris_celebration_progress() * 12.0).sin() as f32 * 0.2 + 1.0;
     let excl_scale = scale * pulse;
     let excl_font_size = font_size * excl_scale;
