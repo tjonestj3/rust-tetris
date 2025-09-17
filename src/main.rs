@@ -108,28 +108,38 @@ async fn main() {
             last_save_time = current_time;
         }
 
-        // Clear screen with dark background
-        clear_background(BACKGROUND_COLOR);
-        
-        // Draw background image
-        draw_texture(
-            &background_texture,
-            0.0,
-            0.0,
-            WHITE,
-        );
-        
-        // Draw semi-transparent overlay for better text readability
-        draw_rectangle(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32,
-            Color::new(0.0, 0.0, 0.0, 0.4),
-        );
+        // Clear screen with appropriate background based on mode
+        if game.is_legacy_mode() {
+            // Pure black background for authentic terminal look
+            clear_background(Color::new(0.0, 0.0, 0.0, 1.0));
+        } else {
+            // Modern background with effects
+            clear_background(BACKGROUND_COLOR);
+            
+            // Draw background image
+            draw_texture(
+                &background_texture,
+                0.0,
+                0.0,
+                WHITE,
+            );
+            
+            // Draw semi-transparent overlay for better text readability
+            draw_rectangle(
+                0.0,
+                0.0,
+                WINDOW_WIDTH as f32,
+                WINDOW_HEIGHT as f32,
+                Color::new(0.0, 0.0, 0.0, 0.4),
+            );
+        }
 
-        // Draw enhanced Tetris board with real data
-        draw_enhanced_board_with_data(&game.board);
+        // Draw Tetris board with appropriate style (legacy vs modern)
+        if game.is_legacy_mode() {
+            draw_legacy_board_with_data(&game.board);
+        } else {
+            draw_enhanced_board_with_data(&game.board);
+        }
         
         // Draw line clearing animation if active
         if game.is_clearing_lines() {
@@ -140,11 +150,19 @@ async fn main() {
         if !game.is_clearing_lines() {
             // Draw ghost piece first (behind the actual piece)
             if let Some(ghost_piece) = game.calculate_ghost_piece() {
-                draw_ghost_piece(&ghost_piece);
+                if game.is_legacy_mode() {
+                    draw_legacy_ghost_piece(&ghost_piece);
+                } else {
+                    draw_ghost_piece(&ghost_piece);
+                }
             }
             
             if let Some(ref piece) = game.current_piece {
-                draw_falling_piece(piece);
+                if game.is_legacy_mode() {
+                    draw_legacy_falling_piece(piece);
+                } else {
+                    draw_falling_piece(piece);
+                }
             }
         }
         
@@ -153,14 +171,26 @@ async fn main() {
             draw_ghost_block_cursor(&game);
         }
         
-        // Draw next piece preview
-        draw_next_piece_preview(&game.next_piece);
+        // Draw next piece preview with appropriate style
+        if game.is_legacy_mode() {
+            draw_legacy_next_piece_preview(&game.next_piece);
+        } else {
+            draw_next_piece_preview(&game.next_piece);
+        }
         
-        // Draw hold piece
-        draw_hold_piece(&game.held_piece, game.can_hold());
+        // Draw hold piece with appropriate style
+        if game.is_legacy_mode() {
+            draw_legacy_hold_piece(&game.held_piece, game.can_hold());
+        } else {
+            draw_hold_piece(&game.held_piece, game.can_hold());
+        }
         
-        // Draw title with enhanced styling
+    // Draw title with enhanced styling
+    if game.is_legacy_mode() {
+        draw_legacy_ui(&game);
+    } else {
         draw_enhanced_ui(&game);
+    }
         
         // Draw TETRIS celebration if active
         if game.is_tetris_celebration_active() {
@@ -333,6 +363,13 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
     if is_key_pressed(KeyCode::P) && (game.state == GameState::Playing || game.state == GameState::Paused) {
         game.toggle_pause();
         audio_system.play_sound(SoundType::Pause);
+        return;
+    }
+    
+    // Legacy mode toggle (L key) - available in any state except game over
+    if is_key_pressed(KeyCode::L) && game.state != GameState::GameOver {
+        game.toggle_legacy_mode();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
         return;
     }
     
@@ -586,17 +623,25 @@ fn draw_ghost_throw_animation(game: &Game) {
         let block_flight = 0.8;   // Block reaches target at 80%
         let impact_end = 1.0;     // Impact effects end at 100%
         
-        // Draw throwing character (simple stick figure)
+        // Draw throwing character (mage or simple stick figure)
         let char_x = start_pos.0;
         let char_y = start_pos.1;
         
         if progress <= throw_peak {
             // Pre-throw and throwing animation
             let throw_progress = (progress / throw_peak) as f32;
-            draw_stick_figure_throwing(char_x, char_y, throw_progress);
+            if game.is_legacy_mode() {
+                draw_legacy_stick_figure_throwing(char_x, char_y, throw_progress);
+            } else {
+                draw_stick_figure_throwing(char_x, char_y, throw_progress);
+            }
         } else {
             // Post-throw pose
-            draw_stick_figure_thrown(char_x, char_y);
+            if game.is_legacy_mode() {
+                draw_legacy_stick_figure_thrown(char_x, char_y);
+            } else {
+                draw_stick_figure_thrown(char_x, char_y);
+            }
         }
         
         // Draw flying block
@@ -617,16 +662,25 @@ fn draw_ghost_throw_animation(game: &Game) {
             
             // Draw spinning block with trail
             let rotation = flight_progress * 6.28 * 3.0; // 3 full rotations
-            draw_spinning_ghost_block(current_x, current_y, rotation, flight_progress);
-            
-            // Draw motion trail
-            draw_block_trail(start_x, start_y, current_x, current_y, flight_progress);
+            if game.is_legacy_mode() {
+                draw_legacy_spinning_ghost_block(current_x, current_y, rotation, flight_progress);
+                // Draw legacy motion trail
+                draw_legacy_block_trail(start_x, start_y, current_x, current_y, flight_progress);
+            } else {
+                draw_spinning_ghost_block(current_x, current_y, rotation, flight_progress);
+                // Draw motion trail
+                draw_block_trail(start_x, start_y, current_x, current_y, flight_progress);
+            }
         }
         
         // Draw impact effects
         if progress >= block_flight {
             let impact_progress = ((progress - block_flight) / (impact_end - block_flight)) as f32;
-            draw_impact_effects(target_pos.0, target_pos.1, impact_progress);
+            if game.is_legacy_mode() {
+                draw_legacy_impact_effects(target_pos.0, target_pos.1, impact_progress);
+            } else {
+                draw_impact_effects(target_pos.0, target_pos.1, impact_progress);
+            }
         }
     }
 }
@@ -846,6 +900,104 @@ fn draw_stick_figure_thrown(x: f32, y: f32) {
                      Color::new(magic_color.r, magic_color.g, magic_color.b, 0.2));
 }
 
+/// Draw legacy terminal-style mage casting spell using ASCII blocks and green colors
+fn draw_legacy_stick_figure_throwing(x: f32, y: f32, progress: f32) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0); // Bright terminal green
+    let dim_green = Color::new(0.0, 0.8, 0.0, 0.8);     // Dimmed terminal green
+    let block_char = "█"; // ASCII block character
+    
+    // Simple ASCII art mage using blocks
+    let body_center_x = x;
+    let body_center_y = y + 15.0;
+    let block_size = 8.0; // Size of each ASCII block
+    
+    // Wizard hat (using ASCII blocks in a triangle pattern)
+    draw_text(block_char, body_center_x - 4.0, y - 20.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 4.0, y - 20.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x, y - 28.0, block_size, terminal_green);
+    
+    // Head
+    draw_text(block_char, body_center_x, y - 8.0, block_size, terminal_green);
+    
+    // Body (robe shape using blocks)
+    draw_text(block_char, body_center_x, body_center_y, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 8.0, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 8.0, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 16.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 8.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 8.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 16.0, body_center_y + 16.0, block_size, terminal_green);
+    
+    // Staff (vertical line of blocks)
+    let staff_x = body_center_x - 20.0;
+    for i in 0..4 {
+        draw_text(block_char, staff_x, body_center_y + (i as f32 * 8.0), block_size, terminal_green);
+    }
+    
+    // Magical orb at staff top (blinking based on progress)
+    if (progress * 10.0).sin() > 0.0 {
+        draw_text(block_char, staff_x, body_center_y - 8.0, block_size, terminal_green);
+    }
+    
+    // Casting arm (extended blocks)
+    let arm_extend = progress * 20.0;
+    draw_text(block_char, body_center_x + 8.0 + arm_extend, body_center_y, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 16.0 + arm_extend, body_center_y, block_size, terminal_green);
+    
+    // Magical energy around casting hand (pulsing blocks)
+    if progress > 0.3 {
+        let pulse = (progress * 8.0).sin().abs();
+        if pulse > 0.5 {
+            draw_text(block_char, body_center_x + 24.0 + arm_extend, body_center_y - 8.0, block_size, dim_green);
+            draw_text(block_char, body_center_x + 24.0 + arm_extend, body_center_y + 8.0, block_size, dim_green);
+        }
+    }
+}
+
+/// Draw legacy terminal-style mage in post-cast pose
+fn draw_legacy_stick_figure_thrown(x: f32, y: f32) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 0.8); // Slightly dimmed after casting
+    let block_char = "█";
+    
+    let body_center_x = x + 15.0;
+    let body_center_y = y + 20.0;
+    let block_size = 8.0;
+    
+    // Wizard hat
+    draw_text(block_char, body_center_x - 4.0, y - 15.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 4.0, y - 15.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x, y - 23.0, block_size, terminal_green);
+    
+    // Head
+    draw_text(block_char, body_center_x, y - 3.0, block_size, terminal_green);
+    
+    // Body (relaxed robe)
+    draw_text(block_char, body_center_x, body_center_y, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 8.0, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 8.0, body_center_y + 8.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 12.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x - 4.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 4.0, body_center_y + 16.0, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 12.0, body_center_y + 16.0, block_size, terminal_green);
+    
+    // Staff
+    let staff_x = body_center_x - 16.0;
+    for i in 0..4 {
+        draw_text(block_char, staff_x, body_center_y + (i as f32 * 8.0), block_size, terminal_green);
+    }
+    
+    // Dimmed orb (spell complete)
+    draw_text(block_char, staff_x, body_center_y - 8.0, block_size, Color::new(0.0, 0.6, 0.0, 0.5));
+    
+    // Extended arm (follow-through)
+    draw_text(block_char, body_center_x + 8.0, body_center_y, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 16.0, body_center_y, block_size, terminal_green);
+    draw_text(block_char, body_center_x + 24.0, body_center_y, block_size, terminal_green);
+}
+
 /// Draw spinning fireball projectile with magical flame effects
 fn draw_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
     let base_size = 16.0;
@@ -884,7 +1036,7 @@ fn draw_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
         let particle_size = 2.0 + (angle * 2.0).sin().abs() * 2.0;
         
         // Particle color transitions from red to yellow
-        let color_phase = (i as f32 / particle_count as f32);
+        let color_phase = i as f32 / particle_count as f32;
         let particle_color = Color::new(
             1.0,
             0.3 + color_phase * 0.6, // Red to yellow transition
@@ -1006,6 +1158,123 @@ fn draw_impact_effects(x: f32, y: f32, progress: f32) {
         if progress <= 0.3 {
             let flash_alpha = (1.0 - progress / 0.3) * 0.8;
             draw_circle(x, y, 20.0, Color::new(1.0, 1.0, 1.0, flash_alpha));
+        }
+    }
+}
+
+/// Draw legacy terminal-style spinning ghost block as a simple green ASCII block
+fn draw_legacy_spinning_ghost_block(x: f32, y: f32, rotation: f32, progress: f32) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0 - progress * 0.2);
+    let block_char = "█";
+    let block_size = 16.0;
+    
+    // Simple pulsing effect based on rotation
+    let pulse = (rotation * 2.0).sin().abs();
+    let alpha_modifier = 0.8 + pulse * 0.2;
+    let final_color = Color::new(0.0, 1.0, 0.0, alpha_modifier * (1.0 - progress * 0.2));
+    
+    // Draw the main block
+    draw_text(block_char, x - block_size / 2.0, y + block_size / 2.0, block_size, final_color);
+    
+    // Add a few trailing blocks for motion effect
+    if rotation > 1.0 {
+        // Trail blocks with decreasing alpha
+        let dim_green = Color::new(0.0, 0.8, 0.0, (1.0 - progress * 0.3) * 0.6);
+        let very_dim_green = Color::new(0.0, 0.6, 0.0, (1.0 - progress * 0.4) * 0.4);
+        
+        // Calculate trail positions based on rotation
+        let trail_distance = 12.0;
+        let trail_x1 = x - rotation.cos() * trail_distance;
+        let trail_y1 = y - rotation.sin() * trail_distance;
+        let trail_x2 = x - rotation.cos() * trail_distance * 1.5;
+        let trail_y2 = y - rotation.sin() * trail_distance * 1.5;
+        
+        draw_text(block_char, trail_x1 - block_size / 2.0, trail_y1 + block_size / 2.0, block_size * 0.8, dim_green);
+        draw_text(block_char, trail_x2 - block_size / 2.0, trail_y2 + block_size / 2.0, block_size * 0.6, very_dim_green);
+    }
+}
+
+/// Draw legacy terminal-style motion trail using green blocks
+fn draw_legacy_block_trail(start_x: f32, start_y: f32, current_x: f32, current_y: f32, progress: f32) {
+    let trail_segments = 6;
+    let block_char = "█";
+    
+    for i in 0..trail_segments {
+        let segment_progress = i as f32 / trail_segments as f32;
+        let trail_progress = progress - segment_progress * 0.4;
+        
+        if trail_progress > 0.0 {
+            let seg_x = start_x + (current_x - start_x) * trail_progress;
+            let seg_y = start_y + (current_y - start_y) * trail_progress;
+            
+            let alpha = (1.0 - segment_progress) * 0.6 * (1.0 - progress * 0.3);
+            let size = 12.0 * (1.0 - segment_progress * 0.5);
+            let trail_color = Color::new(0.0, 0.8, 0.0, alpha);
+            
+            draw_text(block_char, seg_x - size / 2.0, seg_y + size / 2.0, size, trail_color);
+        }
+    }
+}
+
+/// Draw legacy terminal-style impact effects using ASCII blocks
+fn draw_legacy_impact_effects(x: f32, y: f32, progress: f32) {
+    if progress <= 1.0 {
+        let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0 - progress);
+        let dim_green = Color::new(0.0, 0.8, 0.0, (1.0 - progress) * 0.8);
+        let block_char = "█";
+        let block_size = 12.0;
+        
+        // Expanding impact pattern using blocks
+        let impact_radius = progress * 40.0;
+        let positions = [
+            // Central impact
+            (0.0, 0.0),
+            // Cardinal directions
+            (impact_radius, 0.0),
+            (-impact_radius, 0.0),
+            (0.0, impact_radius),
+            (0.0, -impact_radius),
+            // Diagonals
+            (impact_radius * 0.7, impact_radius * 0.7),
+            (-impact_radius * 0.7, impact_radius * 0.7),
+            (impact_radius * 0.7, -impact_radius * 0.7),
+            (-impact_radius * 0.7, -impact_radius * 0.7),
+        ];
+        
+        for (i, &(offset_x, offset_y)) in positions.iter().enumerate() {
+            let block_x = x + offset_x;
+            let block_y = y + offset_y;
+            
+            // Central block is brightest, others fade
+            let color = if i == 0 {
+                terminal_green
+            } else {
+                dim_green
+            };
+            
+            // Only draw blocks that are close enough to show impact
+            if offset_x.abs() + offset_y.abs() <= impact_radius * 1.2 {
+                draw_text(block_char, block_x - block_size / 2.0, block_y + block_size / 2.0, block_size, color);
+            }
+        }
+        
+        // Additional scattered blocks for more dramatic effect
+        if progress > 0.3 {
+            let scatter_positions = [
+                (impact_radius * 1.2, impact_radius * 0.3),
+                (-impact_radius * 1.1, -impact_radius * 0.4),
+                (impact_radius * 0.4, -impact_radius * 1.3),
+                (-impact_radius * 0.6, impact_radius * 1.1),
+            ];
+            
+            let scatter_alpha = (1.0 - progress) * 0.6;
+            let scatter_color = Color::new(0.0, 0.7, 0.0, scatter_alpha);
+            
+            for &(scatter_x, scatter_y) in scatter_positions.iter() {
+                let block_x = x + scatter_x;
+                let block_y = y + scatter_y;
+                draw_text(block_char, block_x - block_size / 2.0, block_y + block_size / 2.0, block_size * 0.8, scatter_color);
+            }
         }
     }
 }
@@ -1416,6 +1685,332 @@ fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
     }
 }
 
+/// Draw legacy-style next piece preview using ASCII characters
+fn draw_legacy_next_piece_preview(next_piece_type: &TetrominoType) {
+    let preview_x = PREVIEW_OFFSET_X;
+    let preview_y = PREVIEW_OFFSET_Y;
+    
+    // Draw preview panel background - terminal style
+    draw_rectangle(
+        preview_x - 10.0,
+        preview_y - 30.0,
+        PREVIEW_SIZE + 20.0,
+        PREVIEW_SIZE + 40.0,
+        Color::new(0.05, 0.05, 0.1, 0.9), // Very dark terminal background
+    );
+    
+    // Draw simple border
+    draw_rectangle_lines(
+        preview_x - 10.0,
+        preview_y - 30.0,
+        PREVIEW_SIZE + 20.0,
+        PREVIEW_SIZE + 40.0,
+        1.0,
+        Color::new(0.4, 0.6, 0.6, 0.8), // Dim cyan border
+    );
+    
+    // Draw "NEXT" label
+    draw_text(
+        "NEXT",
+        preview_x,
+        preview_y - 10.0,
+        TEXT_SIZE,
+        Color::new(0.8, 0.8, 0.9, 1.0), // Light gray text
+    );
+    
+    // Create a temporary piece for preview
+    let preview_piece = Tetromino::new(*next_piece_type);
+    let blocks = preview_piece.blocks;
+    
+    // Center the piece in the preview area
+    let center_x = preview_x + PREVIEW_SIZE / 2.0;
+    let center_y = preview_y + PREVIEW_SIZE / 2.0;
+    
+    // Draw the piece using ASCII blocks
+    for (dx, dy) in blocks {
+        let block_x = center_x + (dx as f32 * CELL_SIZE * 0.7); // Smaller size for preview
+        let block_y = center_y + (dy as f32 * CELL_SIZE * 0.7);
+        
+            // Draw ASCII block character in terminal green
+            let block_char = "█"; // Full block character
+            let text_x = block_x - 6.0; // Center the character
+            let text_y = block_y + 6.0;
+            
+            draw_text(
+                block_char,
+                text_x,
+                text_y,
+                CELL_SIZE * 0.6,
+                Color::new(0.0, 1.0, 0.0, 1.0), // Terminal green instead of piece color
+            );
+    }
+}
+
+/// Draw legacy-style hold piece preview using ASCII characters
+fn draw_legacy_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
+    let hold_x = HOLD_OFFSET_X;
+    let hold_y = HOLD_OFFSET_Y;
+    
+    // Draw hold panel background - terminal style
+    let bg_alpha = if can_hold { 0.9 } else { 0.4 }; // Dimmed when can't hold
+    draw_rectangle(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        Color::new(0.05, 0.05, 0.1, bg_alpha), // Very dark terminal background
+    );
+    
+    // Draw simple border
+    let border_alpha = if can_hold { 0.8 } else { 0.4 };
+    draw_rectangle_lines(
+        hold_x - 10.0,
+        hold_y - 30.0,
+        HOLD_SIZE + 20.0,
+        HOLD_SIZE + 40.0,
+        1.0,
+        Color::new(0.4, 0.6, 0.6, border_alpha), // Dim cyan border
+    );
+    
+    // Draw "HOLD" label
+    let label_color = if can_hold {
+        Color::new(0.8, 0.8, 0.9, 1.0) // Light gray text
+    } else {
+        Color::new(0.4, 0.4, 0.5, 0.6) // Dimmed when can't hold
+    };
+    
+    draw_text(
+        "HOLD",
+        hold_x,
+        hold_y - 10.0,
+        TEXT_SIZE,
+        label_color,
+    );
+    
+    // Draw the held piece if there is one
+    if let Some(piece_type) = held_piece {
+        // Create a temporary piece for preview
+        let hold_piece = Tetromino::new(*piece_type);
+        let blocks = hold_piece.blocks;
+        
+        // Center the piece in the hold area
+        let center_x = hold_x + HOLD_SIZE / 2.0;
+        let center_y = hold_y + HOLD_SIZE / 2.0;
+        
+        // Draw the piece using ASCII blocks
+        let piece_alpha = if can_hold { 1.0 } else { 0.5 };
+        for (dx, dy) in blocks {
+            let block_x = center_x + (dx as f32 * CELL_SIZE * 0.7); // Smaller size for hold
+            let block_y = center_y + (dy as f32 * CELL_SIZE * 0.7);
+            
+            // Draw ASCII block character
+            let block_char = "█"; // Full block character
+            let text_x = block_x - 6.0; // Center the character
+            let text_y = block_y + 6.0;
+            
+            // Use terminal green for legacy mode consistency
+            let final_color = Color::new(
+                0.0,
+                1.0,
+                0.0,
+                piece_alpha, // Keep alpha based on hold availability
+            );
+            
+            draw_text(
+                block_char,
+                text_x,
+                text_y,
+                CELL_SIZE * 0.6,
+                final_color,
+            );
+        }
+    } else {
+        // Show "C" key hint when no piece is held
+        let hint_color = if can_hold {
+            Color::new(0.6, 0.6, 0.7, 0.7)
+        } else {
+            Color::new(0.4, 0.4, 0.4, 0.5)
+        };
+        
+        draw_text(
+            "Press C",
+            hold_x + 5.0,
+            hold_y + HOLD_SIZE / 2.0 - 5.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+        draw_text(
+            "to hold",
+            hold_x + 8.0,
+            hold_y + HOLD_SIZE / 2.0 + 15.0,
+            TEXT_SIZE * 0.7,
+            hint_color,
+        );
+    }
+}
+
+/// Draw legacy-style falling piece using ASCII block characters
+fn draw_legacy_falling_piece(piece: &Tetromino) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0); // Bright terminal green
+    
+    // Use the same positioning as the board
+    let board_start_x = BOARD_OFFSET_X;
+    let board_start_y = BOARD_OFFSET_Y;
+    let char_width = CELL_SIZE;
+    let char_height = CELL_SIZE;
+    let char_size = CELL_SIZE * 0.8;
+    
+    for (x, y) in piece.absolute_blocks() {
+        // Only draw blocks that are in the visible area
+        if y >= BUFFER_HEIGHT as i32 {
+            let visible_y = y - BUFFER_HEIGHT as i32;
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_y = board_start_y + (visible_y as f32 * char_height) + char_height * 0.7;
+            
+            // Draw ASCII block character in terminal green
+            draw_text(
+                "█",
+                cell_x,
+                cell_y,
+                char_size,
+                terminal_green,
+            );
+        }
+    }
+}
+
+/// Draw legacy-style ghost piece using hollow ASCII characters
+fn draw_legacy_ghost_piece(ghost_piece: &Tetromino) {
+    let dimmed_green = Color::new(0.0, 0.5, 0.0, 0.7); // Dimmed terminal green
+    
+    // Use the same positioning as the board
+    let board_start_x = BOARD_OFFSET_X;
+    let board_start_y = BOARD_OFFSET_Y;
+    let char_width = CELL_SIZE;
+    let char_height = CELL_SIZE;
+    let char_size = CELL_SIZE * 0.8;
+    
+    for (x, y) in ghost_piece.absolute_blocks() {
+        // Only draw blocks that are in the visible area
+        if y >= BUFFER_HEIGHT as i32 {
+            let visible_y = y - BUFFER_HEIGHT as i32;
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_y = board_start_y + (visible_y as f32 * char_height) + char_height * 0.7;
+            
+            // Draw hollow ASCII block character in dimmed green
+            draw_text(
+                "▢",
+                cell_x,
+                cell_y,
+                char_size,
+                dimmed_green,
+            );
+        }
+    }
+}
+
+/// Draw authentic terminal-style Tetris board like the original
+fn draw_legacy_board_with_data(board: &Board) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0); // Bright terminal green
+    
+    // Use the same positioning as modern board for consistency
+    let board_start_x = BOARD_OFFSET_X;
+    let board_start_y = BOARD_OFFSET_Y;
+    let char_width = CELL_SIZE; // Same width as modern cells
+    let char_height = CELL_SIZE; // Same height as modern cells
+    let char_size = CELL_SIZE * 0.8; // Font size relative to cell size
+    
+    // Draw ASCII art border like original - top (match board width)
+    let top_border = "<==============================>";
+    draw_text(
+        top_border,
+        board_start_x - char_width * 0.5,
+        board_start_y - char_height * 0.3,
+        char_size,
+        terminal_green,
+    );
+    
+    // Draw the game board with borders
+    for y in 0..VISIBLE_HEIGHT {
+        // Left border
+        draw_text(
+            "<",
+            board_start_x - char_width * 0.5,
+            board_start_y + (y as f32 * char_height) + char_height * 0.7,
+            char_size,
+            terminal_green,
+        );
+        
+        // Board content
+        for x in 0..BOARD_WIDTH {
+            let board_y = (y + BUFFER_HEIGHT) as i32;
+            let board_x = x as i32;
+            
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_y = board_start_y + (y as f32 * char_height) + char_height * 0.7;
+            
+            if let Some(cell) = board.get_cell(board_x, board_y) {
+                if cell.color().is_some() {
+                    // Use original terminal blocks
+                    draw_text(
+                        "█", // or "▓" for a more authentic look
+                        cell_x,
+                        cell_y,
+                        char_size,
+                        terminal_green,
+                    );
+                } else {
+                    // Empty space with dot
+                    draw_text(
+                        "·",
+                        cell_x,
+                        cell_y,
+                        char_size,
+                        Color::new(0.0, 0.3, 0.0, 1.0), // Dim green for dots
+                    );
+                }
+            } else {
+                // Empty space with dot
+                draw_text(
+                    "·",
+                    cell_x,
+                    cell_y,
+                    char_size,
+                    Color::new(0.0, 0.3, 0.0, 1.0), // Dim green for dots
+                );
+            }
+        }
+        
+        // Right border
+        draw_text(
+            ">",
+            board_start_x + (BOARD_WIDTH as f32 * char_width) + char_width * 0.3,
+            board_start_y + (y as f32 * char_height) + char_height * 0.7,
+            char_size,
+            terminal_green,
+        );
+    }
+    
+    // Bottom border
+    let bottom_border = "<==============================>";
+    draw_text(
+        bottom_border,
+        board_start_x - char_width * 0.5,
+        board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.3,
+        char_size,
+        terminal_green,
+    );
+    
+    // Bottom zigzag like original
+    let zigzag = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+    draw_text(
+        zigzag,
+        board_start_x - char_width * 0.5,
+        board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.9,
+        char_size,
+        terminal_green,
+    );
+}
 
 /// Draw enhanced Tetris board with modern styling and real data
 fn draw_enhanced_board_with_data(board: &Board) {
@@ -1836,6 +2431,144 @@ fn draw_enhanced_ui(game: &Game) {
             draw_text(
                 &strategy_info,
                 BOARD_OFFSET_X,
+                BOARD_OFFSET_Y - 30.0,
+                TEXT_SIZE * 0.75,
+                strategy_color,
+            );
+        }
+    }
+}
+
+/// Draw legacy-style UI with terminal-style text and minimal styling
+fn draw_legacy_ui(game: &Game) {
+    let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0);
+    
+    // Simple title in terminal green (same position as modern title)
+    let title = "TETRIS";
+    let title_size = 24.0;
+    let title_width = measure_text(title, None, title_size as u16, 1.0).width;
+    let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
+    
+    draw_text(
+        title,
+        title_x,
+        30.0, // Same as modern title area
+        title_size,
+        terminal_green,
+    );
+    
+    // Instructions - same position as modern UI
+    let instructions = vec![
+        "CONTROLS:",
+        "← → A D - Move",
+        "↓ S - Soft Drop",
+        "↑ X W / Z - Rotate",
+        "SPACE - Hard Drop",
+        "C - Hold Piece",
+        "P - Pause / R - Reset",
+        "L - Modern Mode", // Changed from original
+    ];
+    
+    let inst_x = 25.0; // Same as modern UI
+    let instruction_height = (instructions.len() as f32 * 18.0) + 35.0;
+    let mut inst_y = WINDOW_HEIGHT as f32 - instruction_height - 15.0; // Same position
+    
+    // Calculate safe width that won't overlap with board (same as modern)
+    let max_safe_width = BOARD_OFFSET_X - inst_x - 10.0;
+    let panel_width = max_safe_width.min(260.0);
+    
+    // No background/border in legacy mode for minimal terminal look
+    for (i, instruction) in instructions.iter().enumerate() {
+        let color = if i == 0 {
+            Color::new(0.8, 0.8, 0.8, 1.0) // White header
+        } else {
+            terminal_green // Green text
+        };
+        
+        draw_text(instruction, inst_x, inst_y, TEXT_SIZE * 0.75, color);
+        inst_y += 18.0;
+    }
+    
+    // Game statistics - same position as modern UI (right side)
+    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 20.0; // Same as modern UI
+    let mut stats_y = PREVIEW_OFFSET_Y + PREVIEW_SIZE + 60.0; // Same as modern UI
+    
+    // Stats title
+    draw_text(
+        "GAME STATS",
+        stats_x,
+        stats_y - 10.0,
+        TEXT_SIZE * 0.9,
+        Color::new(0.8, 0.8, 0.8, 1.0), // White header
+    );
+    stats_y += 15.0;
+    
+    // Individual stats (same format as modern UI)
+    let stats = vec![
+        format!("Score: {}", game.score),
+        format!("Level: {}", game.level()),
+        format!("Lines: {}", game.lines_cleared()),
+        format!("Ghost Blocks: {}", game.ghost_blocks_available),
+        format!("State: {:?}", game.state),
+        format!("Time: {:.0}s", game.game_time),
+    ];
+    
+    for (i, stat) in stats.iter().enumerate() {
+        let color = if i == 3 && game.ghost_blocks_available > 0 {
+            // Highlight ghost blocks count (terminal green instead of blue)
+            terminal_green
+        } else {
+            terminal_green // All stats in terminal green
+        };
+        
+        draw_text(
+            stat,
+            stats_x,
+            stats_y,
+            TEXT_SIZE * 0.75,
+            color,
+        );
+        stats_y += 22.0;
+    }
+    
+    // Current piece info (same position as modern UI)
+    if let Some(ref piece) = game.current_piece {
+        draw_text(
+            &format!("Current: {}", piece.piece_type.name()),
+            stats_x,
+            stats_y,
+            TEXT_SIZE * 0.7,
+            terminal_green, // Terminal green instead of piece color
+        );
+    }
+    
+    // Ghost block placement mode indicator (same position as modern UI)
+    if game.ghost_block_placement_mode {
+        let placement_info = "GHOST BLOCK PLACEMENT MODE - M/N for smart positions, Arrows to fine-tune, B to place";
+        draw_text(
+            placement_info,
+            BOARD_OFFSET_X, // Same position as modern UI
+            BOARD_OFFSET_Y - 50.0,
+            TEXT_SIZE * 0.7,
+            Color::new(0.8, 0.8, 0.8, 1.0), // White for visibility
+        );
+        
+        // Strategic info about current position (same as modern UI)
+        if let Some((current_pos, total_positions, blocks_needed)) = game.get_current_position_info() {
+            let strategy_info = format!(
+                "Position {}/{} - {} block{} needed to complete line",
+                current_pos,
+                total_positions,
+                blocks_needed,
+                if blocks_needed == 1 { "" } else { "s" }
+            );
+            
+            // Simple terminal green color instead of gradient
+            let strategy_color = terminal_green;
+            
+            draw_text(
+                &strategy_info,
+                BOARD_OFFSET_X, // Same position as modern UI
                 BOARD_OFFSET_Y - 30.0,
                 TEXT_SIZE * 0.75,
                 strategy_color,
