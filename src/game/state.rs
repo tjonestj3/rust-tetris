@@ -388,6 +388,9 @@ impl Game {
             
             // Add score for hard drop
             self.score += (drop_distance as u32) * SCORE_HARD_DROP;
+            
+            // Immediately lock the piece after hard drop - no lock delay
+            self.lock_current_piece();
         }
     }
     
