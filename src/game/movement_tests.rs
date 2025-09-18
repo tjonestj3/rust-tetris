@@ -333,7 +333,85 @@ mod movement_tests {
                 fall_count += 1;
             }
             
-            assert!(fall_count > 0, "Piece should be able to fall after operations");
+        assert!(fall_count > 0, "Piece should be able to fall after operations");
         }
+    }
+    
+    #[test]
+    fn test_side_collision_doesnt_start_lock_delay() {
+        let mut game = create_game_with_piece(TetrominoType::I);
+        
+        // Create a vertical wall on the right side
+        let board_bottom = BOARD_HEIGHT + BUFFER_HEIGHT - 1;
+        for y in 0..10 {
+            game.board.set_cell((BOARD_WIDTH - 1) as i32, (board_bottom - y) as i32, Cell::Filled(macroquad::prelude::RED));
+        }
+        
+        // Position I-piece next to the wall but with space below
+        if let Some(ref mut piece) = game.current_piece {
+            // Place piece well above the obstacles with room to fall
+            piece.position = ((BOARD_WIDTH - 3) as i32, (BUFFER_HEIGHT + 5) as i32);
+        }
+        
+        // Verify piece can initially fall
+        let mut test_piece = game.current_piece.as_ref().unwrap().clone();
+        test_piece.move_by(0, 1);
+        assert!(game.is_piece_valid(&test_piece), "Piece should be able to fall initially");
+        
+        // Try to move right into the wall (should fail but not trigger lock delay)
+        let initial_locking_state = game.piece_is_locking;
+        let move_success = game.move_piece(1, 0); // Try to move into wall
+        
+        // Movement should fail
+        assert!(!move_success, "Movement into wall should fail");
+        
+        // But lock delay should NOT be triggered because piece can still fall
+        assert_eq!(game.piece_is_locking, initial_locking_state, 
+                  "Lock delay state should not change when hitting side wall while piece can still fall");
+        
+        // Verify piece can still move down
+        assert!(game.drop_current_piece(), "Piece should still be able to drop after side collision");
+        
+        // Lock delay should still not be active (piece can continue falling)
+        assert!(!game.piece_is_locking, "Lock delay should not be active while piece can fall");
+    }
+    
+    #[test]
+    fn test_successful_side_movement_doesnt_trigger_lock_delay() {
+        let mut game = create_game_with_piece(TetrominoType::O);
+        
+        // Create obstacles on sides but leave space for the piece to fall
+        let board_bottom = BOARD_HEIGHT + BUFFER_HEIGHT - 1;
+        
+        // Create walls with gap in middle
+        for y in 0..5 {
+            // Left wall
+            game.board.set_cell(1, (board_bottom - y) as i32, Cell::Filled(macroquad::prelude::RED));
+            // Right wall  
+            game.board.set_cell((BOARD_WIDTH - 2) as i32, (board_bottom - y) as i32, Cell::Filled(macroquad::prelude::RED));
+        }
+        
+        // Position piece in the middle, high up
+        if let Some(ref mut piece) = game.current_piece {
+            piece.position = ((BOARD_WIDTH / 2) as i32, (board_bottom - 15) as i32);
+        }
+        
+        // Perform sliding movement (like T-spins or wall kicks)
+        for _ in 0..3 {
+            // Move left
+            game.move_piece(-1, 0);
+            // Should not trigger lock delay since piece can still fall
+            assert!(!game.piece_is_locking, 
+                   "Side movement should not trigger lock delay when piece can still fall");
+            
+            // Move right
+            game.move_piece(1, 0);
+            // Should not trigger lock delay since piece can still fall
+            assert!(!game.piece_is_locking, 
+                   "Side movement should not trigger lock delay when piece can still fall");
+        }
+        
+        // Verify piece can still drop
+        assert!(game.drop_current_piece(), "Piece should still be able to drop after side movements");
     }
 }

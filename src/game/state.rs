@@ -343,35 +343,42 @@ impl Game {
             piece.move_by(dx, dy);
             
             if self.is_piece_valid(&piece) {
-                self.current_piece = Some(piece.clone());
+                // Movement was successful - update piece position
+                self.current_piece = Some(piece);
                 
-                // Simplified lock delay logic to prevent premature locking
-                // Only reset lock delay if the piece can actually continue falling
-                let mut test_piece = piece.clone();
-                test_piece.move_by(0, 1);
+                // NOW check if the piece can still fall from its CURRENT position
+                // This prevents side collisions from triggering lock delay
+                self.update_lock_state_for_current_piece();
                 
-                if self.is_piece_valid(&test_piece) {
-                    // Piece can still fall - reset lock delay regardless of movement type
-                    self.reset_lock_delay();
-                    log::debug!("Piece moved and can still fall - lock delay reset");
-                } else {
-                    // Piece is grounded - start locking if not already
-                    if !self.piece_is_locking {
-                        self.piece_is_locking = true;
-                        self.lock_delay_timer = 0.0;
-                        log::debug!("Piece moved but is now grounded - starting lock delay");
-                    }
-                    // For horizontal movement of grounded pieces, allow some lock delay resets
-                    // but not infinite ones (handled by reset_lock_delay method)
-                    if dx != 0 && dy == 0 {
-                        // Only reset lock delay if we haven't hit the reset limit
-                        self.reset_lock_delay();
-                    }
-                }
                 return true;
             }
         }
         false
+    }
+    
+    /// Update lock delay state based on whether current piece can continue falling
+    /// This should be called after any successful piece movement or rotation
+    fn update_lock_state_for_current_piece(&mut self) {
+        if let Some(ref piece) = self.current_piece {
+            // Test if piece can move down from its CURRENT position
+            let mut test_piece = piece.clone();
+            test_piece.move_by(0, 1);
+            
+            if self.is_piece_valid(&test_piece) {
+                // Piece can still fall - reset lock delay completely
+                self.reset_lock_delay();
+                log::debug!("Piece can still fall from current position - lock delay reset");
+            } else {
+                // Piece is truly grounded - start/continue lock delay
+                if !self.piece_is_locking {
+                    self.piece_is_locking = true;
+                    self.lock_delay_timer = 0.0;
+                    log::debug!("Piece is now grounded and cannot fall - starting lock delay");
+                }
+                // Note: We don't automatically reset lock delay for grounded pieces
+                // Lock delay resets are handled explicitly in reset_lock_delay() method
+            }
+        }
     }
     
     /// Try to rotate the current piece clockwise
@@ -381,8 +388,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
-                // Reset lock delay on successful rotation
-                self.reset_lock_delay();
+                // Check lock state after successful rotation
+                self.update_lock_state_for_current_piece();
                 return true;
             }
         }
@@ -396,8 +403,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
-                // Reset lock delay on successful rotation
-                self.reset_lock_delay();
+                // Check lock state after successful rotation
+                self.update_lock_state_for_current_piece();
                 return true;
             }
         }
