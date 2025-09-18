@@ -73,6 +73,8 @@ pub struct Game {
     pub piece_is_locking: bool,
     /// Number of times lock delay has been reset for current piece
     pub lock_resets: u32,
+    /// Total time the current piece has been active (prevents infinite floating)
+    pub piece_lifetime_timer: f64,
     
     /// TETRIS celebration state
     pub tetris_celebration_active: bool,
@@ -123,6 +125,7 @@ impl Game {
             lock_delay_timer: 0.0,
             piece_is_locking: false,
             lock_resets: 0,
+            piece_lifetime_timer: 0.0,
             
             tetris_celebration_active: false,
             tetris_celebration_timer: 0.0,
@@ -167,6 +170,11 @@ impl Game {
         self.right_move_timer += delta_time;
         self.ghost_block_blink_timer += delta_time;
         
+        // Update piece lifetime timer
+        if self.current_piece.is_some() {
+            self.piece_lifetime_timer += delta_time;
+        }
+        
         // Update TETRIS celebration timer
         if self.tetris_celebration_active {
             self.tetris_celebration_timer += delta_time;
@@ -182,6 +190,14 @@ impl Game {
             if self.ghost_throw_timer >= GHOST_THROW_ANIMATION_TIME {
                 self.finish_ghost_throw();
             }
+        }
+        
+        // Check for force lock if piece has exceeded maximum lifetime
+        // This is a critical safeguard against floating pieces
+        if self.piece_lifetime_timer >= MAX_PIECE_LIFETIME {
+            log::warn!("Piece exceeded maximum lifetime of {}s, force-locking to prevent floating bug", MAX_PIECE_LIFETIME);
+            self.lock_current_piece();
+            return; // Don't continue with other logic after locking
         }
         
         // Update lock delay timer if piece is in locking state
@@ -249,6 +265,7 @@ impl Game {
             self.piece_is_locking = false;
             self.lock_delay_timer = 0.0;
             self.lock_resets = 0;
+            self.piece_lifetime_timer = 0.0;
             
             // Place the piece on the board
             for (x, y) in piece.absolute_blocks() {
@@ -287,6 +304,7 @@ impl Game {
         self.piece_is_locking = false;
         self.lock_delay_timer = 0.0;
         self.lock_resets = 0;
+        self.piece_lifetime_timer = 0.0;
         
         // Check if the new piece can be placed
         if self.is_piece_valid(&new_piece) {
@@ -319,24 +337,35 @@ impl Game {
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece.clone());
                 
-                // Only reset lock delay for horizontal movement and rotations,
-                // and only if the piece can still move down after the movement
+                // Handle lock delay logic based on movement type
                 if dx != 0 { // Horizontal movement
                     // Check if piece can still fall after horizontal movement
                     let mut test_piece = piece.clone();
                     test_piece.move_by(0, 1);
                     if self.is_piece_valid(&test_piece) {
-                        // Piece can still fall, reset lock delay
+                        // Piece can still fall after horizontal movement, reset lock delay
                         self.reset_lock_delay();
                     } else {
-                        // Piece is still grounded, only reset if not already locking
-                        // This prevents the floating bug while still allowing some movement
+                        // Piece is grounded after horizontal movement
+                        if !self.piece_is_locking {
+                            // Start locking if not already locking
+                            self.piece_is_locking = true;
+                            self.lock_delay_timer = 0.0;
+                        }
+                        // For grounded pieces, don't reset lock delay on horizontal movement
+                        // This prevents the floating block bug by ensuring grounded pieces
+                        // will eventually lock even if they keep moving horizontally
+                    }
+                } else if dy > 0 { // Downward movement (soft drop)
+                    // Downward movement should not reset lock delay
+                    // If piece can't move down further, it should start/continue locking
+                    let mut test_piece = piece.clone();
+                    test_piece.move_by(0, 1);
+                    if !self.is_piece_valid(&test_piece) {
+                        // Piece is now grounded after downward movement
                         if !self.piece_is_locking {
                             self.piece_is_locking = true;
                             self.lock_delay_timer = 0.0;
-                        } else {
-                            // Reduce remaining lock time for horizontal sliding on ground
-                            self.reset_lock_delay_with_reduced_time();
                         }
                     }
                 }
@@ -673,16 +702,6 @@ impl Game {
         }
     }
     
-    /// Reset lock delay with reduced time window for horizontal sliding on grounded pieces
-    fn reset_lock_delay_with_reduced_time(&mut self) {
-        // Only reset if we haven't exceeded the maximum number of resets
-        if self.lock_resets < MAX_LOCK_RESETS {
-            // Don't fully reset locking state - just give a bit more time
-            // This tightens the lock delay window for pieces sliding on the ground
-            self.lock_delay_timer = (self.lock_delay_timer - 0.05).max(0.0);
-            self.lock_resets += 1;
-        }
-    }
     
     /// Calculate where the current piece will land (ghost piece position)
     pub fn calculate_ghost_piece(&self) -> Option<Tetromino> {
