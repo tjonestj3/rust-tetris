@@ -56,8 +56,8 @@ pub const BOARD_HEIGHT_PX: f32 = VISIBLE_HEIGHT as f32 * CELL_SIZE;
 pub const BOARD_OFFSET_X: f32 = (WINDOW_WIDTH as f32 - BOARD_WIDTH_PX) / 2.0;
 pub const BOARD_OFFSET_Y: f32 = (WINDOW_HEIGHT as f32 - BOARD_HEIGHT_PX) / 2.0 + 20.0; // Slightly above center
 
-/// Next piece preview area
-pub const PREVIEW_OFFSET_X: f32 = BOARD_OFFSET_X + BOARD_WIDTH_PX + UI_MARGIN;
+/// Next piece preview area (with extra spacing for legacy mode consistency)
+pub const PREVIEW_OFFSET_X: f32 = BOARD_OFFSET_X + BOARD_WIDTH_PX + UI_MARGIN + 35.0;
 pub const PREVIEW_OFFSET_Y: f32 = BOARD_OFFSET_Y;
 pub const PREVIEW_SIZE: f32 = 4.0 * CELL_SIZE;
 

@@ -1864,7 +1864,7 @@ fn draw_legacy_falling_piece(piece: &Tetromino) {
         // Only draw blocks that are in the visible area
         if y >= BUFFER_HEIGHT as i32 {
             let visible_y = y - BUFFER_HEIGHT as i32;
-            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.25;
             let cell_y = board_start_y + (visible_y as f32 * char_height) + char_height * 0.7;
             
             // Draw ASCII block character in terminal green
@@ -1894,7 +1894,7 @@ fn draw_legacy_ghost_piece(ghost_piece: &Tetromino) {
         // Only draw blocks that are in the visible area
         if y >= BUFFER_HEIGHT as i32 {
             let visible_y = y - BUFFER_HEIGHT as i32;
-            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.25;
             let cell_y = board_start_y + (visible_y as f32 * char_height) + char_height * 0.7;
             
             // Draw hollow ASCII block character in dimmed green
@@ -1920,11 +1920,11 @@ fn draw_legacy_board_with_data(board: &Board) {
     let char_height = CELL_SIZE; // Same height as modern cells
     let char_size = CELL_SIZE * 0.8; // Font size relative to cell size
     
-    // Draw ASCII art border like original - top (match board width)
-    let top_border = "<==============================>";
+    // Draw ASCII art border like original - top (with proper spacing)
+    let top_border = "<================================>";
     draw_text(
         top_border,
-        board_start_x - char_width * 0.5,
+        board_start_x - char_width * 1.2,
         board_start_y - char_height * 0.3,
         char_size,
         terminal_green,
@@ -1932,80 +1932,80 @@ fn draw_legacy_board_with_data(board: &Board) {
     
     // Draw the game board with borders
     for y in 0..VISIBLE_HEIGHT {
-        // Left border
+        // Left border (moved further from board content)
         draw_text(
             "<",
-            board_start_x - char_width * 0.5,
+            board_start_x - char_width * 1.2,
             board_start_y + (y as f32 * char_height) + char_height * 0.7,
             char_size,
             terminal_green,
         );
         
-        // Board content
+        // Board content (adjusted for better centering)
         for x in 0..BOARD_WIDTH {
             let board_y = (y + BUFFER_HEIGHT) as i32;
             let board_x = x as i32;
             
-            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.3;
+            let cell_x = board_start_x + (x as f32 * char_width) + char_width * 0.25;
             let cell_y = board_start_y + (y as f32 * char_height) + char_height * 0.7;
             
             if let Some(cell) = board.get_cell(board_x, board_y) {
                 if cell.color().is_some() {
                     // Use original terminal blocks
                     draw_text(
-                        "█", // or "▓" for a more authentic look
+                        "█", // Full block for authentic look
                         cell_x,
                         cell_y,
                         char_size,
                         terminal_green,
                     );
                 } else {
-                    // Empty space with dot
+                    // Empty space with subtle dot
                     draw_text(
                         "·",
                         cell_x,
                         cell_y,
                         char_size,
-                        Color::new(0.0, 0.3, 0.0, 1.0), // Dim green for dots
+                        Color::new(0.0, 0.25, 0.0, 0.8), // More subtle dim green for dots
                     );
                 }
             } else {
-                // Empty space with dot
+                // Empty space with subtle dot
                 draw_text(
                     "·",
                     cell_x,
                     cell_y,
                     char_size,
-                    Color::new(0.0, 0.3, 0.0, 1.0), // Dim green for dots
+                    Color::new(0.0, 0.25, 0.0, 0.8), // More subtle dim green for dots
                 );
             }
         }
         
-        // Right border
+        // Right border (moved further from board content)
         draw_text(
             ">",
-            board_start_x + (BOARD_WIDTH as f32 * char_width) + char_width * 0.3,
+            board_start_x + (BOARD_WIDTH as f32 * char_width) + char_width * 0.7,
             board_start_y + (y as f32 * char_height) + char_height * 0.7,
             char_size,
             terminal_green,
         );
     }
     
-    // Bottom border
-    let bottom_border = "<==============================>";
+    // Bottom border (with proper spacing)
+    let bottom_border = "<================================>";
     draw_text(
         bottom_border,
-        board_start_x - char_width * 0.5,
+        board_start_x - char_width * 1.2,
         board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.3,
         char_size,
         terminal_green,
     );
     
-    // Bottom zigzag like original
-    let zigzag = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+    // Bottom zigzag like original (with proper spacing)
+    let zigzag = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
     draw_text(
         zigzag,
-        board_start_x - char_width * 0.5,
+        board_start_x - char_width * 1.2,
         board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.9,
         char_size,
         terminal_green,
@@ -2324,8 +2324,8 @@ fn draw_enhanced_ui(game: &Game) {
         inst_y += 18.0; // Tighter spacing
     }
     
-    // Game statistics panel with retro styling - position on right side
-    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 20.0; // Right side of board
+    // Game statistics panel with retro styling - position on right side (consistent with preview spacing)
+    let stats_x = PREVIEW_OFFSET_X; // Use same x position as preview panel
     let mut stats_y = PREVIEW_OFFSET_Y + PREVIEW_SIZE + 60.0; // Below the Next piece panel
     
     // Stats background - retro dark blue
@@ -2489,8 +2489,8 @@ fn draw_legacy_ui(game: &Game) {
         inst_y += 18.0;
     }
     
-    // Game statistics - same position as modern UI (right side)
-    let stats_x = BOARD_OFFSET_X + BOARD_WIDTH_PX + 20.0; // Same as modern UI
+    // Game statistics - consistent positioning with preview panel
+    let stats_x = PREVIEW_OFFSET_X; // Use same x position as preview panel
     let mut stats_y = PREVIEW_OFFSET_Y + PREVIEW_SIZE + 60.0; // Same as modern UI
     
     // Stats title
