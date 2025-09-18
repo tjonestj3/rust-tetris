@@ -1,6 +1,6 @@
 //! Audio system for managing game sounds
 
-use macroquad::audio::{Sound, load_sound, play_sound, PlaySoundParams};
+use macroquad::audio::{Sound, load_sound, play_sound, PlaySoundParams, stop_sound, set_sound_volume};
 use std::collections::HashMap;
 
 /// Types of sounds in the game
@@ -41,6 +41,8 @@ pub struct AudioSystem {
     music_volume: f32,
     /// Whether audio is enabled
     audio_enabled: bool,
+    /// Whether background music is currently playing
+    background_music_playing: bool,
 }
 
 impl AudioSystem {
@@ -52,6 +54,7 @@ impl AudioSystem {
             sfx_volume: 0.7,
             music_volume: 0.5,
             audio_enabled: true,
+            background_music_playing: false,
         }
     }
     
@@ -108,7 +111,7 @@ impl AudioSystem {
             };
             
             play_sound(sound, params);
-            log::trace!("Playing sound: {:?} at volume {:.2}", sound_type, volume);
+            log::info!("Playing sound: {:?} at volume {:.2}", sound_type, volume);
         } else {
             log::warn!("Sound not loaded: {:?}", sound_type);
         }
@@ -134,7 +137,7 @@ impl AudioSystem {
             };
             
             play_sound(sound, params);
-            log::trace!("Playing sound: {:?} at volume {:.2} ({}x multiplier)", 
+            log::info!("Playing sound: {:?} at volume {:.2} ({}x multiplier)", 
                        sound_type, final_volume, volume_multiplier);
         } else {
             log::warn!("Sound not loaded: {:?}", sound_type);
@@ -143,8 +146,13 @@ impl AudioSystem {
     
     /// Set master volume (0.0 to 1.0)
     pub fn set_master_volume(&mut self, volume: f32) {
-        self.master_volume = volume.clamp(0.0, 1.0);
-        log::debug!("Master volume set to {:.2}", self.master_volume);
+        let new_volume = volume.clamp(0.0, 1.0);
+        if self.master_volume != new_volume {
+            self.master_volume = new_volume;
+            log::debug!("Master volume set to {:.2}", self.master_volume);
+            // Update background music volume smoothly without restarting
+            self.update_background_music_volume();
+        }
     }
     
     /// Set sound effects volume (0.0 to 1.0)
@@ -155,14 +163,29 @@ impl AudioSystem {
     
     /// Set music volume (0.0 to 1.0)
     pub fn set_music_volume(&mut self, volume: f32) {
-        self.music_volume = volume.clamp(0.0, 1.0);
-        log::debug!("Music volume set to {:.2}", self.music_volume);
+        let new_volume = volume.clamp(0.0, 1.0);
+        if self.music_volume != new_volume {
+            self.music_volume = new_volume;
+            log::debug!("Music volume set to {:.2}", self.music_volume);
+            // Update background music volume smoothly without restarting
+            self.update_background_music_volume();
+        }
     }
     
     /// Enable or disable audio
     pub fn set_audio_enabled(&mut self, enabled: bool) {
-        self.audio_enabled = enabled;
-        log::info!("Audio {}", if enabled { "enabled" } else { "disabled" });
+        if self.audio_enabled != enabled {
+            self.audio_enabled = enabled;
+            log::info!("Audio {}", if enabled { "enabled" } else { "disabled" });
+            
+            if enabled {
+                // When enabled, start background music at current volume
+                self.start_background_music();
+            } else {
+                // When disabled, stop background music
+                self.stop_background_music();
+            }
+        }
     }
     
     /// Get master volume
@@ -186,9 +209,50 @@ impl AudioSystem {
     }
     
     /// Start background music
-    pub fn start_background_music(&self) {
-        log::info!("Starting background music");
-        self.play_sound(SoundType::BackgroundMusic);
+    pub fn start_background_music(&mut self) {
+        if !self.background_music_playing {
+            log::info!("Starting background music");
+            self.play_sound(SoundType::BackgroundMusic);
+            self.background_music_playing = true;
+        }
+    }
+    
+    /// Stop background music
+    pub fn stop_background_music(&mut self) {
+        if self.background_music_playing {
+            log::info!("Stopping background music");
+            if let Some(sound) = self.sounds.get(&SoundType::BackgroundMusic) {
+                stop_sound(sound);
+            }
+            self.background_music_playing = false;
+        }
+    }
+    
+    /// Check if background music is playing
+    pub fn is_background_music_playing(&self) -> bool {
+        self.background_music_playing
+    }
+    
+    /// Update background music volume without restarting
+    pub fn update_background_music_volume(&self) {
+        if self.background_music_playing && self.audio_enabled {
+            if let Some(sound) = self.sounds.get(&SoundType::BackgroundMusic) {
+                let volume = self.master_volume * self.music_volume;
+                set_sound_volume(sound, volume);
+                log::debug!("Updated background music volume to {:.2}", volume);
+            }
+        }
+    }
+    
+    /// Restart background music with current volume settings if it was playing
+    fn restart_background_music_if_playing(&mut self) {
+        if self.background_music_playing {
+            log::info!("Restarting background music with updated volume");
+            // Stop the old sound first
+            self.stop_background_music();
+            // Start with new settings
+            self.start_background_music();
+        }
     }
 }
 

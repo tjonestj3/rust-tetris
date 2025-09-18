@@ -11,10 +11,6 @@ categories = ["games"]
 name = "tetris"
 path = "src/main.rs"
 
-[[bin]]
-name = "menu_demo"
-path = "src/main_simple.rs"
-
 [dependencies]
 # Graphics and rendering
 macroquad = { version = "0.4", features = ["audio"] }

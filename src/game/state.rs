@@ -942,6 +942,9 @@ impl Game {
         self.ghost_throw_start = (start_x, start_y);
         self.ghost_block_placement_mode = false; // Exit placement mode
         
+        // Ensure current piece is in a valid position after exiting placement mode
+        self.validate_current_piece_position();
+        
         log::info!("Starting ghost block throw animation to ({}, {})", target_x, target_y);
     }
     
@@ -970,6 +973,45 @@ impl Game {
     /// Check if ghost throw animation is currently active
     pub fn is_ghost_throw_active(&self) -> bool {
         self.ghost_throw_active
+    }
+    
+    /// Ensure the current piece is in a valid position, moving it if necessary
+    fn validate_current_piece_position(&mut self) {
+        if let Some(mut piece) = self.current_piece.clone() {
+            // If the piece is in an invalid position, try to move it to a valid one
+            if !self.is_piece_valid(&piece) {
+                // Try moving the piece down until it's valid or hits the bottom
+                let mut attempts = 0;
+                let max_attempts = 20; // Prevent infinite loop
+                
+                while !self.is_piece_valid(&piece) && attempts < max_attempts {
+                    piece.move_by(0, 1); // Move down
+                    attempts += 1;
+                    
+                    // If moving down doesn't help, try moving up
+                    if attempts == max_attempts / 2 {
+                        // Reset and try moving up instead
+                        piece = self.current_piece.clone().unwrap();
+                        for _ in 0..max_attempts / 2 {
+                            piece.move_by(0, -1); // Move up
+                            if self.is_piece_valid(&piece) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // If we still couldn't find a valid position, lock the piece and spawn a new one
+                if !self.is_piece_valid(&piece) {
+                    log::warn!("Could not find valid position for current piece after ghost block placement, spawning new piece");
+                    self.current_piece = None;
+                    self.spawn_next_piece();
+                } else {
+                    self.current_piece = Some(piece);
+                    log::debug!("Moved current piece to valid position after ghost block placement");
+                }
+            }
+        }
     }
     
     /// Get current throw animation progress and positions

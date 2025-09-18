@@ -90,6 +90,10 @@ async fn main() {
             last_fps_time = current_time;
         }
 
+        // Update audio system with current settings (applies to all states)
+        audio_system.set_audio_enabled(menu_system.settings.sound_enabled);
+        audio_system.set_master_volume(menu_system.settings.volume);
+        
         match app_state {
             AppState::Menu => {
                 // Update menu system
