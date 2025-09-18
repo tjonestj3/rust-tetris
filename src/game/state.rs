@@ -19,7 +19,7 @@ pub enum GameState {
 }
 
 /// Main game struct
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
     /// Current game state
     pub state: GameState,
@@ -258,6 +258,11 @@ impl Game {
     /// Lock the current piece to the board and spawn a new one
     pub fn lock_current_piece(&mut self) {
         if let Some(piece) = self.current_piece.take() {
+            // Debug logging for piece locking
+            log::debug!("Locking piece {:?} at position ({}, {}) after {:.2}s lifetime, {} lock resets",
+                       piece.piece_type, piece.position.0, piece.position.1, 
+                       self.piece_lifetime_timer, self.lock_resets);
+            
             // Set flag to indicate a piece was just locked (for audio feedback)
             self.piece_just_locked = true;
             
@@ -295,6 +300,8 @@ impl Game {
     /// Spawn the next piece
     pub fn spawn_next_piece(&mut self) {
         let new_piece = Tetromino::new(self.next_piece);
+        log::debug!("Spawning new piece: {:?} at position ({}, {})", 
+                   new_piece.piece_type, new_piece.position.0, new_piece.position.1);
         self.next_piece = TetrominoType::random();
         
         // Reset hold usage for the new piece
@@ -311,6 +318,7 @@ impl Game {
             self.current_piece = Some(new_piece);
         } else {
             // Game over - can't spawn new piece
+            log::warn!("Game over: Cannot spawn piece {:?} - board is full", new_piece.piece_type);
             self.state = GameState::GameOver;
         }
     }
@@ -337,36 +345,27 @@ impl Game {
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece.clone());
                 
-                // Handle lock delay logic based on movement type
-                if dx != 0 { // Horizontal movement
-                    // Check if piece can still fall after horizontal movement
-                    let mut test_piece = piece.clone();
-                    test_piece.move_by(0, 1);
-                    if self.is_piece_valid(&test_piece) {
-                        // Piece can still fall after horizontal movement, reset lock delay
-                        self.reset_lock_delay();
-                    } else {
-                        // Piece is grounded after horizontal movement
-                        if !self.piece_is_locking {
-                            // Start locking if not already locking
-                            self.piece_is_locking = true;
-                            self.lock_delay_timer = 0.0;
-                        }
-                        // For grounded pieces, don't reset lock delay on horizontal movement
-                        // This prevents the floating block bug by ensuring grounded pieces
-                        // will eventually lock even if they keep moving horizontally
+                // Simplified lock delay logic to prevent premature locking
+                // Only reset lock delay if the piece can actually continue falling
+                let mut test_piece = piece.clone();
+                test_piece.move_by(0, 1);
+                
+                if self.is_piece_valid(&test_piece) {
+                    // Piece can still fall - reset lock delay regardless of movement type
+                    self.reset_lock_delay();
+                    log::debug!("Piece moved and can still fall - lock delay reset");
+                } else {
+                    // Piece is grounded - start locking if not already
+                    if !self.piece_is_locking {
+                        self.piece_is_locking = true;
+                        self.lock_delay_timer = 0.0;
+                        log::debug!("Piece moved but is now grounded - starting lock delay");
                     }
-                } else if dy > 0 { // Downward movement (soft drop)
-                    // Downward movement should not reset lock delay
-                    // If piece can't move down further, it should start/continue locking
-                    let mut test_piece = piece.clone();
-                    test_piece.move_by(0, 1);
-                    if !self.is_piece_valid(&test_piece) {
-                        // Piece is now grounded after downward movement
-                        if !self.piece_is_locking {
-                            self.piece_is_locking = true;
-                            self.lock_delay_timer = 0.0;
-                        }
+                    // For horizontal movement of grounded pieces, allow some lock delay resets
+                    // but not infinite ones (handled by reset_lock_delay method)
+                    if dx != 0 && dy == 0 {
+                        // Only reset lock delay if we haven't hit the reset limit
+                        self.reset_lock_delay();
                     }
                 }
                 return true;
@@ -500,24 +499,21 @@ impl Game {
         }
         
         // Only spawn next piece if we don't have a current piece
-        // This prevents ghost block placements from interrupting the current falling piece
         if self.current_piece.is_none() {
             self.spawn_next_piece();
         } else {
-            // If we have a current piece, make sure it's still in a valid position after line clearing
-            // If not valid, try to move it up until it is valid
-            if let Some(mut piece) = self.current_piece.clone() {
-                while !self.is_piece_valid(&piece) && piece.position.1 > 0 {
-                    piece.move_by(0, -1);
-                }
-                
-                // If piece is still not valid even after moving up, lock it and spawn new one
-                if !self.is_piece_valid(&piece) {
-                    self.current_piece = None;
-                    self.spawn_next_piece();
-                } else {
-                    self.current_piece = Some(piece);
-                }
+            // If we have a current piece after line clearing, ensure it can continue falling normally
+            // Reset lock delay state so the piece can continue its natural fall
+            // DO NOT force reposition the piece - let natural game physics handle it
+            self.piece_is_locking = false;
+            self.lock_delay_timer = 0.0;
+            
+            // Log the state for debugging
+            if let Some(ref piece) = self.current_piece {
+                let is_valid = self.is_piece_valid(piece);
+                log::debug!("After line clear: piece at ({}, {}) is {}", 
+                           piece.position.0, piece.position.1, 
+                           if is_valid { "valid and can continue falling" } else { "invalid - will be handled by normal game logic" });
             }
         }
     }
@@ -692,13 +688,36 @@ impl Game {
         !self.hold_used_this_piece && self.current_piece.is_some()
     }
     
-    /// Reset the lock delay timer and state (if reset limit hasn't been reached)
-    fn reset_lock_delay(&mut self) {
-        // Only reset if we haven't exceeded the maximum number of resets
+    /// Reset the lock delay timer and state with improved anti-floating logic
+    pub fn reset_lock_delay(&mut self) {
+        // Always allow reset if piece can actually move down (not grounded)
+        if let Some(ref piece) = self.current_piece {
+            let mut test_piece = piece.clone();
+            test_piece.move_by(0, 1);
+            
+            if self.is_piece_valid(&test_piece) {
+                // Piece can move down - allow reset regardless of reset count
+                self.piece_is_locking = false;
+                self.lock_delay_timer = 0.0;
+                self.lock_resets = 0; // Reset counter since piece can move down
+                log::debug!("Lock delay reset: piece can still fall");
+                return;
+            }
+        }
+        
+        // Piece is grounded - only reset if we haven't exceeded the maximum number of resets
         if self.lock_resets < MAX_LOCK_RESETS {
             self.piece_is_locking = false;
             self.lock_delay_timer = 0.0;
             self.lock_resets += 1;
+            log::debug!("Lock delay reset #{}: grounded piece gets more time", self.lock_resets);
+        } else {
+            log::debug!("Lock delay reset denied: max resets ({}) exceeded, piece will lock soon", MAX_LOCK_RESETS);
+            // Force the piece into locking state if it wasn't already
+            if !self.piece_is_locking {
+                self.piece_is_locking = true;
+                self.lock_delay_timer = 0.0;
+            }
         }
     }
     
@@ -942,8 +961,12 @@ impl Game {
         self.ghost_throw_start = (start_x, start_y);
         self.ghost_block_placement_mode = false; // Exit placement mode
         
-        // Ensure current piece is in a valid position after exiting placement mode
-        self.validate_current_piece_position();
+        // Simply reset lock delay state when exiting ghost block mode
+        // Let natural game physics handle piece positioning
+        if self.current_piece.is_some() {
+            self.reset_lock_delay();
+            log::debug!("Ghost block mode exited - lock delay reset for current piece");
+        }
         
         log::info!("Starting ghost block throw animation to ({}, {})", target_x, target_y);
     }
@@ -975,41 +998,17 @@ impl Game {
         self.ghost_throw_active
     }
     
-    /// Ensure the current piece is in a valid position, moving it if necessary
+    /// Light validation for current piece - only handles extreme cases
     fn validate_current_piece_position(&mut self) {
-        if let Some(mut piece) = self.current_piece.clone() {
-            // If the piece is in an invalid position, try to move it to a valid one
-            if !self.is_piece_valid(&piece) {
-                // Try moving the piece down until it's valid or hits the bottom
-                let mut attempts = 0;
-                let max_attempts = 20; // Prevent infinite loop
-                
-                while !self.is_piece_valid(&piece) && attempts < max_attempts {
-                    piece.move_by(0, 1); // Move down
-                    attempts += 1;
-                    
-                    // If moving down doesn't help, try moving up
-                    if attempts == max_attempts / 2 {
-                        // Reset and try moving up instead
-                        piece = self.current_piece.clone().unwrap();
-                        for _ in 0..max_attempts / 2 {
-                            piece.move_by(0, -1); // Move up
-                            if self.is_piece_valid(&piece) {
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                // If we still couldn't find a valid position, lock the piece and spawn a new one
-                if !self.is_piece_valid(&piece) {
-                    log::warn!("Could not find valid position for current piece after ghost block placement, spawning new piece");
-                    self.current_piece = None;
-                    self.spawn_next_piece();
-                } else {
-                    self.current_piece = Some(piece);
-                    log::debug!("Moved current piece to valid position after ghost block placement");
-                }
+        // Only validate that we have a piece - don't force repositioning
+        // Let the normal game update loop handle positioning via natural physics
+        if let Some(ref piece) = self.current_piece {
+            if !self.is_piece_valid(piece) {
+                log::debug!("Current piece in invalid position after ghost operation - will be handled by normal game logic");
+                // Reset lock delay to give the piece a chance to find a valid position naturally
+                self.reset_lock_delay();
+            } else {
+                log::debug!("Current piece remains in valid position after ghost operation");
             }
         }
     }
@@ -1025,6 +1024,27 @@ impl Game {
             Some((progress, self.ghost_throw_start, target_screen))
         } else {
             None
+        }
+    }
+    
+    /// Get debug information about current piece state (for debugging locking issues)
+    pub fn get_piece_debug_info(&self) -> String {
+        if let Some(ref piece) = self.current_piece {
+            format!("Piece: {:?} at ({}, {}) | Locking: {} | Lock Timer: {:.2}s | Resets: {} | Lifetime: {:.2}s | Can Fall: {}",
+                   piece.piece_type,
+                   piece.position.0, piece.position.1,
+                   self.piece_is_locking,
+                   self.lock_delay_timer,
+                   self.lock_resets,
+                   self.piece_lifetime_timer,
+                   {
+                       let mut test_piece = piece.clone();
+                       test_piece.move_by(0, 1);
+                       self.is_piece_valid(&test_piece)
+                   }
+            )
+        } else {
+            "No current piece".to_string()
         }
     }
 }
