@@ -5,6 +5,18 @@ use rust_tetris::board::Board;
 use rust_tetris::game::{Game, GameState};
 use rust_tetris::tetromino::{Tetromino, TetrominoType};
 use rust_tetris::audio::system::{AudioSystem, SoundType};
+use rust_tetris::{MenuSystem, MenuAction};
+
+/// Game application state
+#[derive(Debug, PartialEq)]
+enum AppState {
+    /// In the menu system
+    Menu,
+    /// Playing the game
+    Playing,
+    /// Game over, checking for high score
+    GameOver,
+}
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -33,24 +45,30 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
+    // Initialize menu system
+    let mut menu_system = MenuSystem::new();
+    
     // Initialize and load audio system
     let mut audio_system = AudioSystem::new();
     if let Err(e) = audio_system.load_sounds().await {
         log::warn!("Failed to initialize audio system: {}", e);
     }
     
-    // Start background music
-    audio_system.start_background_music();
+    // Apply audio settings
+    if !menu_system.settings.sound_enabled {
+        // TODO: Mute audio system based on settings
+        log::info!("Audio disabled by user settings");
+    }
     
-    // Check for existing save file and handle startup
+    // Start background music if enabled
+    if menu_system.settings.sound_enabled {
+        audio_system.start_background_music();
+    }
+    
+    // Application state management
+    let mut app_state = AppState::Menu;
+    let mut game: Option<Game> = None;
     let save_path = Game::default_save_path();
-    let mut game = if Game::save_file_exists(&save_path) {
-        // Show load/new game menu
-        show_startup_menu(&save_path).await
-    } else {
-        // No save file, start new game
-        Game::new()
-    };
     
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
@@ -59,10 +77,7 @@ async fn main() {
     let auto_save_interval = 30.0; // Auto-save every 30 seconds
     let mut last_game_state_hash = 0u64; // Track game state changes for performance
     
-    log::info!("Game initialized with first piece: {:?}", 
-               game.current_piece.as_ref().map(|p| p.piece_type).unwrap_or(TetrominoType::T));
-
-    // Main game loop
+    // Main application loop
     loop {
         let delta_time = get_frame_time();
         frame_count += 1;
@@ -75,140 +90,124 @@ async fn main() {
             last_fps_time = current_time;
         }
 
-        // Handle input
-        handle_input(&mut game, &audio_system);
-        
-        // Store previous state for audio event detection
-        let prev_score = game.score;
-        let prev_level = game.level();
-        let prev_lines_cleared = game.lines_cleared();
-        let was_clearing_lines = game.is_clearing_lines();
-        let prev_state = game.state;
-        
-        // Update game logic
-        game.update(delta_time as f64);
-        
-        // Detect and play audio for game events
-        detect_and_play_audio_events(&game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
-        
-        // Auto-save periodically during gameplay (optimized with state change detection)
-        if game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
-            let current_hash = game.get_state_hash();
-            if current_hash != last_game_state_hash {
-                // Only save if game state has actually changed
-                if let Err(e) = game.save_to_file(&save_path) {
-                    log::warn!("Auto-save failed: {}", e);
-                } else {
-                    last_game_state_hash = current_hash;
-                    log::debug!("Auto-save completed (state changed)");
+        match app_state {
+            AppState::Menu => {
+                // Update menu system
+                menu_system.update(delta_time as f64);
+                
+                // Handle menu input
+                let action = menu_system.handle_input();
+                
+                match action {
+                    MenuAction::NewGame => {
+                        log::info!("Starting new game");
+                        game = Some(Game::new());
+                        app_state = AppState::Playing;
+                    },
+                    MenuAction::LoadGame => {
+                        log::info!("Loading saved game");
+                        match Game::load_from_file(&save_path) {
+                            Ok(loaded_game) => {
+                                game = Some(loaded_game);
+                                app_state = AppState::Playing;
+                            },
+                            Err(e) => {
+                                log::warn!("Failed to load save file: {}", e);
+                                // Fall back to new game
+                                game = Some(Game::new());
+                                app_state = AppState::Playing;
+                            }
+                        }
+                    },
+                    MenuAction::Quit => {
+                        log::info!("Quitting game");
+                        std::process::exit(0);
+                    },
+                    MenuAction::None => {
+                        // Continue in menu
+                    },
                 }
-            } else {
-                log::debug!("Auto-save skipped (no state change)");
-            }
-            last_save_time = current_time;
-        }
-
-        // Clear screen with appropriate background based on mode
-        if game.is_legacy_mode() {
-            // Pure black background for authentic terminal look
-            clear_background(Color::new(0.0, 0.0, 0.0, 1.0));
-        } else {
-            // Modern background with effects
-            clear_background(BACKGROUND_COLOR);
+                
+                // Render menu
+                menu_system.render(&background_texture);
+            },
             
-            // Draw background image
-            draw_texture(
-                &background_texture,
-                0.0,
-                0.0,
-                WHITE,
-            );
-            
-            // Draw semi-transparent overlay for better text readability
-            draw_rectangle(
-                0.0,
-                0.0,
-                WINDOW_WIDTH as f32,
-                WINDOW_HEIGHT as f32,
-                Color::new(0.0, 0.0, 0.0, 0.4),
-            );
-        }
-
-        // Draw Tetris board with appropriate style (legacy vs modern)
-        if game.is_legacy_mode() {
-            draw_legacy_board_with_data(&game.board);
-        } else {
-            draw_enhanced_board_with_data(&game.board);
-        }
-        
-        // Draw line clearing animation if active
-        if game.is_clearing_lines() {
-            draw_line_clear_animation(&game);
-        }
-        
-        // Draw the current falling piece (only if not clearing lines)
-        if !game.is_clearing_lines() {
-            // Draw ghost piece first (behind the actual piece)
-            if let Some(ghost_piece) = game.calculate_ghost_piece() {
-                if game.is_legacy_mode() {
-                    draw_legacy_ghost_piece(&ghost_piece);
+            AppState::Playing => {
+                if let Some(ref mut current_game) = game {
+                    // Handle game input
+                    handle_game_input(current_game, &audio_system, &mut app_state, &mut menu_system);
+                    
+                    // Store previous state for audio event detection
+                    let prev_score = current_game.score;
+                    let prev_level = current_game.level();
+                    let prev_lines_cleared = current_game.lines_cleared();
+                    let was_clearing_lines = current_game.is_clearing_lines();
+                    let prev_state = current_game.state;
+                    
+                    // Update game logic
+                    current_game.update(delta_time as f64);
+                    
+                    // Check for game over and high score
+                    if current_game.state == GameState::GameOver && prev_state != GameState::GameOver {
+                        // Game just ended - check for high score
+                        if menu_system.check_high_score(
+                            current_game.score,
+                            current_game.level(),
+                            current_game.lines_cleared(),
+                            current_game.game_time
+                        ) {
+                            app_state = AppState::GameOver;
+                        } else {
+                            // No high score, return to menu
+                            app_state = AppState::Menu;
+                        }
+                    }
+                    
+                    // Detect and play audio for game events
+                    detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+                    
+                    // Auto-save periodically during gameplay
+                    if current_game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
+                        let current_hash = current_game.get_state_hash();
+                        if current_hash != last_game_state_hash {
+                            // Only save if game state has actually changed
+                            if let Err(e) = current_game.save_to_file(&save_path) {
+                                log::warn!("Auto-save failed: {}", e);
+                            } else {
+                                last_game_state_hash = current_hash;
+                                log::debug!("Auto-save completed (state changed)");
+                            }
+                        } else {
+                            log::debug!("Auto-save skipped (no state change)");
+                        }
+                        last_save_time = current_time;
+                    }
+                    
+                    // Render game
+                    render_game(current_game, &background_texture, fps);
                 } else {
-                    draw_ghost_piece(&ghost_piece);
+                    // No game instance, return to menu
+                    app_state = AppState::Menu;
                 }
-            }
+            },
             
-            if let Some(ref piece) = game.current_piece {
-                if game.is_legacy_mode() {
-                    draw_legacy_falling_piece(piece);
-                } else {
-                    draw_falling_piece(piece);
+            AppState::GameOver => {
+                // Update menu system for name entry
+                menu_system.update(delta_time as f64);
+                
+                // Handle name entry input
+                let action = menu_system.handle_input();
+                
+                if action != MenuAction::None || !matches!(menu_system.state, rust_tetris::menu::MenuState::NameEntry { .. }) {
+                    // Name entry complete or cancelled, return to menu
+                    app_state = AppState::Menu;
                 }
-            }
+                
+                // Render name entry screen
+                menu_system.render(&background_texture);
+            },
         }
         
-        // Draw ghost block cursor if in placement mode
-        if game.is_ghost_cursor_visible() {
-            draw_ghost_block_cursor(&game);
-        }
-        
-        // Draw next piece preview with appropriate style
-        if game.is_legacy_mode() {
-            draw_legacy_next_piece_preview(&game.next_piece);
-        } else {
-            draw_next_piece_preview(&game.next_piece);
-        }
-        
-        // Draw hold piece with appropriate style
-        if game.is_legacy_mode() {
-            draw_legacy_hold_piece(&game.held_piece, game.can_hold());
-        } else {
-            draw_hold_piece(&game.held_piece, game.can_hold());
-        }
-        
-    // Draw title with enhanced styling
-    if game.is_legacy_mode() {
-        draw_legacy_ui(&game);
-    } else {
-        draw_enhanced_ui(&game);
-    }
-        
-        // Draw TETRIS celebration if active
-        if game.is_tetris_celebration_active() {
-            draw_tetris_celebration(&game);
-        }
-        
-        // Draw ghost throw animation if active
-        if game.is_ghost_throw_active() {
-            draw_ghost_throw_animation(&game);
-        }
-        
-        // Draw game state overlays
-        match game.state {
-            GameState::GameOver => draw_game_over_overlay(&game),
-            GameState::Paused => draw_pause_overlay(&game),
-            _ => {}, // No overlay for Playing or Menu
-        }
-
         // Show FPS in debug mode
         if SHOW_FPS {
             let fps_text = format!("FPS: {:.1}", fps);
@@ -220,14 +219,253 @@ async fn main() {
                 TEXT_COLOR,
             );
         }
-
-        // Log basic info periodically (every 60 frames)
-        if frame_count % 60 == 0 && DEBUG_MODE {
-            log::debug!("Frame: {}, FPS: {:.1}, Delta: {:.4}ms", 
-                       frame_count, fps, delta_time * 1000.0);
-        }
-
+        
         next_frame().await;
+    }
+}
+
+/// Handle game input and transitions back to menu
+fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mut AppState, _menu_system: &mut MenuSystem) {
+    // Quit to menu
+    if is_key_pressed(KeyCode::Escape) {
+        *app_state = AppState::Menu;
+        return;
+    }
+    
+    // Save game (S key) - available in any state
+    if is_key_pressed(KeyCode::S) && is_key_down(KeyCode::LeftControl) {
+        let save_path = Game::default_save_path();
+        match game.save_to_file(&save_path) {
+            Ok(_) => {
+                log::info!("Game saved manually");
+                audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+            },
+            Err(e) => {
+                log::warn!("Manual save failed: {}", e);
+            }
+        }
+        return;
+    }
+    
+    // Reset game (R key) - available in any state
+    if is_key_pressed(KeyCode::R) {
+        game.reset();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+        return;
+    }
+    
+    // Pause toggle (P key) - available when playing or paused
+    if is_key_pressed(KeyCode::P) && (game.state == GameState::Playing || game.state == GameState::Paused) {
+        game.toggle_pause();
+        audio_system.play_sound(SoundType::Pause);
+        return;
+    }
+    
+    // Legacy mode toggle (L key) - available in any state except game over
+    if is_key_pressed(KeyCode::L) && game.state != GameState::GameOver {
+        game.toggle_legacy_mode();
+        audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
+        return;
+    }
+    
+    // Only handle game controls when playing
+    if game.state != GameState::Playing {
+        return;
+    }
+    
+    // Ghost block controls (available during normal play)
+    if is_key_pressed(KeyCode::B) {
+        if game.ghost_block_placement_mode {
+            // B to place block when in placement mode
+            game.place_ghost_block();
+        } else {
+            // B to activate ghost block placement mode
+            game.toggle_ghost_block_mode();
+        }
+    }
+    
+    // Ghost block cursor movement (only when in placement mode)
+    if game.ghost_block_placement_mode {
+        if is_key_pressed(KeyCode::M) {
+            // M for next smart position
+            game.next_smart_position();
+        }
+        if is_key_pressed(KeyCode::N) {
+            // N for previous smart position
+            game.previous_smart_position();
+        }
+        // Also allow arrow keys for manual fine-tuning
+        if is_key_pressed(KeyCode::Up) {
+            game.move_ghost_block_cursor(0, -1);
+        }
+        if is_key_pressed(KeyCode::Down) {
+            game.move_ghost_block_cursor(0, 1);
+        }
+        if is_key_pressed(KeyCode::Left) {
+            game.move_ghost_block_cursor(-1, 0);
+        }
+        if is_key_pressed(KeyCode::Right) {
+            game.move_ghost_block_cursor(1, 0);
+        }
+        return; // Skip normal game controls when in placement mode
+    }
+    
+    // Continuous horizontal movement (Arrow keys + WASD)
+    let left_held = is_key_down(KeyCode::Left) || is_key_down(KeyCode::A);
+    let right_held = is_key_down(KeyCode::Right) || is_key_down(KeyCode::D);
+    
+    // Play movement sound on initial press only
+    if (is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A)) ||
+       (is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D)) {
+        audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+    }
+    
+    game.update_left_movement(left_held);
+    game.update_right_movement(right_held);
+    
+    // Continuous soft drop (Down arrow + S key)
+    let soft_drop_held = is_key_down(KeyCode::Down) || is_key_down(KeyCode::S);
+    game.update_soft_drop(soft_drop_held);
+    
+    // Rotation (Up/X/W for clockwise, Z for counterclockwise)
+    if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::W) {
+        if game.rotate_piece_clockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
+    }
+    if is_key_pressed(KeyCode::Z) {
+        if game.rotate_piece_counterclockwise() {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+        }
+    }
+    
+    // Hard drop (Space)
+    if is_key_pressed(KeyCode::Space) {
+        game.hard_drop();
+        audio_system.play_sound(SoundType::HardDrop);
+    }
+    
+    // Hold piece (C key)
+    if is_key_pressed(KeyCode::C) {
+        if game.hold_piece() {
+            audio_system.play_sound(SoundType::HoldPiece);
+        }
+    }
+}
+
+/// Render the game state
+fn render_game(game: &Game, background_texture: &Texture2D, fps: f64) {
+    // Clear screen with appropriate background based on mode
+    if game.is_legacy_mode() {
+        // Pure black background for authentic terminal look
+        clear_background(Color::new(0.0, 0.0, 0.0, 1.0));
+    } else {
+        // Modern background with effects
+        clear_background(BACKGROUND_COLOR);
+        
+        // Draw background image
+        draw_texture(
+            background_texture,
+            0.0,
+            0.0,
+            WHITE,
+        );
+        
+        // Draw semi-transparent overlay for better text readability
+        draw_rectangle(
+            0.0,
+            0.0,
+            WINDOW_WIDTH as f32,
+            WINDOW_HEIGHT as f32,
+            Color::new(0.0, 0.0, 0.0, 0.4),
+        );
+    }
+
+    // Draw Tetris board with appropriate style (legacy vs modern)
+    if game.is_legacy_mode() {
+        draw_legacy_board_with_data(&game.board);
+    } else {
+        draw_enhanced_board_with_data(&game.board);
+    }
+    
+    // Draw line clearing animation if active
+    if game.is_clearing_lines() {
+        draw_line_clear_animation(&game);
+    }
+    
+    // Draw the current falling piece (only if not clearing lines)
+    if !game.is_clearing_lines() {
+        // Draw ghost piece first (behind the actual piece)
+        if let Some(ghost_piece) = game.calculate_ghost_piece() {
+            if game.is_legacy_mode() {
+                draw_legacy_ghost_piece(&ghost_piece);
+            } else {
+                draw_ghost_piece(&ghost_piece);
+            }
+        }
+        
+        if let Some(ref piece) = game.current_piece {
+            if game.is_legacy_mode() {
+                draw_legacy_falling_piece(piece);
+            } else {
+                draw_falling_piece(piece);
+            }
+        }
+    }
+    
+    // Draw ghost block cursor if in placement mode
+    if game.is_ghost_cursor_visible() {
+        draw_ghost_block_cursor(&game);
+    }
+    
+    // Draw next piece preview with appropriate style
+    if game.is_legacy_mode() {
+        draw_legacy_next_piece_preview(&game.next_piece);
+    } else {
+        draw_next_piece_preview(&game.next_piece);
+    }
+    
+    // Draw hold piece with appropriate style
+    if game.is_legacy_mode() {
+        draw_legacy_hold_piece(&game.held_piece, game.can_hold());
+    } else {
+        draw_hold_piece(&game.held_piece, game.can_hold());
+    }
+    
+    // Draw title with enhanced styling
+    if game.is_legacy_mode() {
+        draw_legacy_ui(&game);
+    } else {
+        draw_enhanced_ui(&game);
+    }
+    
+    // Draw TETRIS celebration if active
+    if game.is_tetris_celebration_active() {
+        draw_tetris_celebration(&game);
+    }
+    
+    // Draw ghost throw animation if active
+    if game.is_ghost_throw_active() {
+        draw_ghost_throw_animation(&game);
+    }
+    
+    // Draw game state overlays
+    match game.state {
+        GameState::GameOver => draw_game_over_overlay(&game),
+        GameState::Paused => draw_pause_overlay(&game),
+        _ => {}, // No overlay for Playing or Menu
+    }
+    
+    // Show FPS in debug mode
+    if SHOW_FPS {
+        let fps_text = format!("FPS: {:.1}", fps);
+        draw_text(
+            &fps_text,
+            WINDOW_WIDTH as f32 - 100.0,
+            30.0,
+            TEXT_SIZE,
+            TEXT_COLOR,
+        );
     }
 }
 
