@@ -19,9 +19,9 @@ pub const TARGET_FPS: i32 = 60;
 /// Game timing (in seconds)
 pub const INITIAL_DROP_TIME: f64 = 1.0; // 1 second per drop at level 1
 pub const FAST_DROP_MULTIPLIER: f64 = 0.05; // Speed up factor for soft drop
-pub const LOCK_DELAY: f64 = 0.3; // Time before piece locks in place
+pub const LOCK_DELAY: f64 = 0.5; // Time before piece locks in place (standard Tetris timing)
 pub const MAX_LOCK_RESETS: u32 = 15; // Maximum number of times lock delay can be reset
-pub const MAX_PIECE_LIFETIME: f64 = 10.0; // Maximum time a piece can exist before being force-locked (prevents infinite floating)
+pub const MAX_PIECE_LIFETIME: f64 = 20.0; // Maximum time a piece can exist before being force-locked (prevents infinite floating)
 
 /// Input timing (in seconds)
 pub const INPUT_REPEAT_DELAY: f64 = 0.167; // Initial delay before key repeat
