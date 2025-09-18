@@ -5,6 +5,18 @@ use rust_tetris::board::Board;
 use rust_tetris::game::{Game, GameState};
 use rust_tetris::tetromino::{Tetromino, TetrominoType};
 use rust_tetris::audio::system::{AudioSystem, SoundType};
+use rust_tetris::{MenuSystem, MenuAction};
+
+/// Game application state
+#[derive(Debug, PartialEq)]
+enum AppState {
+    /// In the menu system
+    Menu,
+    /// Playing the game
+    Playing,
+    /// Game over, checking for high score
+    GameOver,
+}
 
 /// Window configuration for macroquad
 fn window_conf() -> Conf {
@@ -33,24 +45,30 @@ async fn main() {
     // Load background texture
     let background_texture = Texture2D::from_image(&create_chess_background());
     
+    // Initialize menu system
+    let mut menu_system = MenuSystem::new();
+    
     // Initialize and load audio system
     let mut audio_system = AudioSystem::new();
     if let Err(e) = audio_system.load_sounds().await {
         log::warn!("Failed to initialize audio system: {}", e);
     }
     
-    // Start background music
-    audio_system.start_background_music();
+    // Apply audio settings
+    if !menu_system.settings.sound_enabled {
+        // TODO: Mute audio system based on settings
+        log::info!("Audio disabled by user settings");
+    }
     
-    // Check for existing save file and handle startup
+    // Start background music if enabled
+    if menu_system.settings.sound_enabled {
+        audio_system.start_background_music();
+    }
+    
+    // Application state management
+    let mut app_state = AppState::Menu;
+    let mut game: Option<Game> = None;
     let save_path = Game::default_save_path();
-    let mut game = if Game::save_file_exists(&save_path) {
-        // Show load/new game menu
-        show_startup_menu(&save_path).await
-    } else {
-        // No save file, start new game
-        Game::new()
-    };
     
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
