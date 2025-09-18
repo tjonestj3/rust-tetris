@@ -457,12 +457,23 @@ impl MenuSystem {
             
             self.draw_text_with_outline(no_scores, text_x, text_y, entry_size, Color::new(0.8, 0.8, 0.8, 0.8));
         } else {
-            // Draw header
-            let header = "RANK  PLAYER NAME        SCORE     LVL  LINES  TIME";
-            let header_x = 80.0;
+            // Draw header with fixed column positions
+            let base_x = 80.0;
             let header_y = entry_y_start - 20.0;
+            let rank_x = base_x;
+            let name_x = base_x + 50.0;
+            let score_x = base_x + 220.0;
+            let level_x = base_x + 320.0;
+            let lines_x = base_x + 380.0;
+            let time_x = base_x + 450.0;
             
-            self.draw_text_with_outline(header, header_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            // Draw column headers
+            self.draw_text_with_outline("RANK", rank_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            self.draw_text_with_outline("PLAYER NAME", name_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            self.draw_text_with_outline("SCORE", score_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            self.draw_text_with_outline("LVL", level_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            self.draw_text_with_outline("LINES", lines_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
+            self.draw_text_with_outline("TIME", time_x, header_y, 18.0, Color::new(0.6, 0.8, 1.0, 1.0));
             
             // Draw entries (with scrolling)
             let visible_entries = 7;
@@ -473,19 +484,7 @@ impl MenuSystem {
                 let entry = &self.leaderboard.entries[entry_idx];
                 let rank = entry_idx + 1;
                 
-                let entry_x = 80.0;
                 let entry_y = entry_y_start + (display_idx as f32 * entry_spacing);
-                
-                // Format entry text
-                let entry_text = format!(
-                    "{:2}    {:16} {:8}    {:2}   {:3}   {}",
-                    rank,
-                    entry.name,
-                    entry.score,
-                    entry.level,
-                    entry.lines_cleared,
-                    entry.formatted_time()
-                );
                 
                 // Color based on rank
                 let color = match rank {
@@ -495,7 +494,13 @@ impl MenuSystem {
                     _ => Color::new(0.8, 0.8, 0.8, 0.9), // White
                 };
                 
-                self.draw_text_with_outline(&entry_text, entry_x, entry_y, entry_size, color);
+                // Draw each column individually for perfect alignment
+                self.draw_text_with_outline(&rank.to_string(), rank_x, entry_y, entry_size, color);
+                self.draw_text_with_outline(&entry.name, name_x, entry_y, entry_size, color);
+                self.draw_text_with_outline(&entry.score.to_string(), score_x, entry_y, entry_size, color);
+                self.draw_text_with_outline(&entry.level.to_string(), level_x, entry_y, entry_size, color);
+                self.draw_text_with_outline(&entry.lines_cleared.to_string(), lines_x, entry_y, entry_size, color);
+                self.draw_text_with_outline(&entry.formatted_time(), time_x, entry_y, entry_size, color);
             }
             
             // Draw scroll indicators if needed
@@ -772,27 +777,53 @@ impl MenuSystem {
     fn draw_animated_title(&self) {
         let title = "RUST TETRIS";
         let title_size = 72.0;
-        let title_width = measure_text(title, None, title_size as u16, 1.0).width;
-        let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
+        
+        // Calculate the actual rendered width by summing individual character widths
+        let mut total_width = 0.0;
+        let mut char_positions = Vec::new();
+        let mut current_x = 0.0;
+        
+        for c in title.chars() {
+            if c == ' ' {
+                // For spaces, add spacing but don't render
+                let space_width = title_size * 0.4; // Adjust space width as needed
+                char_positions.push((c, current_x));
+                current_x += space_width;
+                total_width += space_width;
+            } else {
+                // For regular characters
+                let char_width = measure_text(&c.to_string(), None, title_size as u16, 1.0).width;
+                char_positions.push((c, current_x));
+                current_x += char_width;
+                total_width += char_width;
+            }
+        }
+        
+        // Center the entire title
+        let title_start_x = (WINDOW_WIDTH as f32 - total_width) / 2.0;
         let title_y = 150.0;
         
         // Draw each letter with a wave effect and rainbow colors
         let time_offset = self.animation_timer * 2.0;
-        for (i, c) in title.chars().enumerate() {
-            if c == ' ' {
-                continue; // Skip spaces
+        let mut render_index = 0; // Only count rendered characters for color calculation
+        
+        for (i, (c, relative_x)) in char_positions.iter().enumerate() {
+            if *c == ' ' {
+                continue; // Skip rendering spaces
             }
             
-            let char_x = title_x + (i as f32 * title_size * 0.65);
-            let wave_offset = (self.animation_timer * 2.0 + i as f64 * 0.5).sin() * 10.0;
+            let char_x = title_start_x + relative_x;
+            let wave_offset = (self.animation_timer * 2.0 + render_index as f64 * 0.5).sin() * 10.0;
             let char_y = title_y + wave_offset as f32;
             
-            // Rainbow color
-            let hue = ((i as f64 * 0.3) + time_offset) % 6.0;
+            // Rainbow color based on render position
+            let hue = ((render_index as f64 * 0.3) + time_offset) % 6.0;
             let rainbow_color = self.hsv_to_rgb(hue, 0.9, 1.0);
             
             // Draw with outline
             self.draw_text_with_outline(&c.to_string(), char_x, char_y, title_size, rainbow_color);
+            
+            render_index += 1;
         }
         
         // Draw subtitle
