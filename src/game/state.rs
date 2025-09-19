@@ -92,6 +92,9 @@ pub struct Game {
     
     /// Legacy mode flag - when true, renders blocks as ASCII characters like Pajitnov's original
     pub legacy_mode: bool,
+    
+    /// Track if the last successful action was a rotation (for T-spin detection)
+    pub last_action_was_rotation: bool,
 }
 
 impl Game {
@@ -106,7 +109,7 @@ impl Game {
             hold_used_this_piece: false,
             score: 0,
             drop_timer: 0.0,
-            drop_interval: INITIAL_DROP_TIME,
+            drop_interval: 1.0, // Will be set properly by update_drop_interval()
             game_time: 0.0,
             clearing_lines: Vec::new(),
             clear_animation_timer: 0.0,
@@ -136,10 +139,14 @@ impl Game {
             ghost_throw_start: (0.0, 0.0),
             
             legacy_mode: false, // Start in modern mode by default
+            last_action_was_rotation: false,
         };
         
         // Spawn the first piece
         game.spawn_next_piece();
+        
+        // Initialize drop interval based on starting level
+        game.update_drop_interval();
         
         game
     }
@@ -215,10 +222,6 @@ impl Game {
             self.drop_current_piece();
             self.drop_timer = 0.0;
         }
-        
-        // Update drop interval based on level
-        let level_multiplier = LEVEL_SPEED_MULTIPLIER.powi((self.board.level() - 1) as i32);
-        self.drop_interval = INITIAL_DROP_TIME * level_multiplier;
     }
     
     /// Try to drop the current piece by one row
@@ -313,6 +316,12 @@ impl Game {
         self.lock_resets = 0;
         self.piece_lifetime_timer = 0.0;
         
+        // Update drop interval if level changed
+        self.update_drop_interval();
+        
+        // Reset T-spin detection for new piece
+        self.last_action_was_rotation = false;
+        
         // Check if the new piece can be placed
         if self.is_piece_valid(&new_piece) {
             self.current_piece = Some(new_piece);
@@ -345,6 +354,9 @@ impl Game {
             if self.is_piece_valid(&piece) {
                 // Movement was successful - update piece position
                 self.current_piece = Some(piece);
+                
+                // Movement resets rotation tracking for T-spin detection
+                self.last_action_was_rotation = false;
                 
                 // NOW check if the piece can still fall from its CURRENT position
                 // This prevents side collisions from triggering lock delay
@@ -388,6 +400,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Mark that the last successful action was a rotation
+                self.last_action_was_rotation = true;
                 // Check lock state after successful rotation
                 self.update_lock_state_for_current_piece();
                 return true;
@@ -403,6 +417,8 @@ impl Game {
             
             if self.is_piece_valid(&piece) {
                 self.current_piece = Some(piece);
+                // Mark that the last successful action was a rotation
+                self.last_action_was_rotation = true;
                 // Check lock state after successful rotation
                 self.update_lock_state_for_current_piece();
                 return true;
@@ -1052,6 +1068,78 @@ impl Game {
             )
         } else {
             "No current piece".to_string()
+        }
+    }
+    
+    /// Update drop interval based on current level
+    /// Uses a more reasonable progression that doesn't become microscopic
+    fn update_drop_interval(&mut self) {
+        let level = self.board.level();
+        
+        // Use a more reasonable drop speed progression
+        // Each level increases speed but maintains playable intervals
+        self.drop_interval = match level {
+            1 => 1.0,      // 1 second (slow start)
+            2 => 0.85,     // 850ms
+            3 => 0.72,     // 720ms
+            4 => 0.61,     // 610ms 
+            5 => 0.52,     // 520ms
+            6 => 0.44,     // 440ms
+            7 => 0.37,     // 370ms
+            8 => 0.31,     // 310ms
+            9 => 0.26,     // 260ms
+            10 => 0.22,    // 220ms
+            11 => 0.19,    // 190ms
+            12 => 0.16,    // 160ms
+            13 => 0.13,    // 130ms
+            14 => 0.11,    // 110ms
+            15 => 0.09,    // 90ms
+            _ => 0.08,     // 80ms minimum (very fast but still playable)
+        };
+        
+        log::debug!("Updated drop interval for level {} to {:.3}s ({:.1}ms)", 
+                   level, self.drop_interval, self.drop_interval * 1000.0);
+    }
+    
+    /// Check if the current piece placement qualifies as a T-spin
+    /// Basic T-spin detection: T-piece + last action was rotation + surrounded by blocks/walls
+    pub fn is_t_spin(&self) -> bool {
+        // Must have a current piece that is a T-piece
+        if let Some(ref piece) = self.current_piece {
+            if piece.piece_type != crate::tetromino::TetrominoType::T {
+                return false;
+            }
+            
+            // Last action must have been a rotation
+            if !self.last_action_was_rotation {
+                return false;
+            }
+            
+            // Check if T-piece is in a "3-corner rule" position
+            // For a proper T-spin, at least 3 corners around the T center should be occupied
+            let center_x = piece.position.0;
+            let center_y = piece.position.1;
+            
+            // Check the 4 corner positions around the T-piece center
+            let corners = [
+                (center_x - 1, center_y - 1), // Top-left
+                (center_x + 1, center_y - 1), // Top-right  
+                (center_x - 1, center_y + 1), // Bottom-left
+                (center_x + 1, center_y + 1), // Bottom-right
+            ];
+            
+            let occupied_corners = corners.iter()
+                .filter(|(x, y)| {
+                    // Consider position occupied if it's out of bounds or has a block
+                    !self.board.is_position_valid(*x, *y) || 
+                    self.board.get_cell(*x, *y).map_or(true, |cell| cell.is_filled())
+                })
+                .count();
+            
+            // T-spin if at least 3 corners are occupied
+            occupied_corners >= 3
+        } else {
+            false
         }
     }
 }
