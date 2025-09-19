@@ -11,6 +11,7 @@ pub mod input;
 pub mod leaderboard;
 pub mod menu;
 pub mod rotation;
+pub mod scoring;
 pub mod tetromino;
 
 // Re-export commonly used items
