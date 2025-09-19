@@ -4,6 +4,7 @@ use crate::board::{Board, Cell};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::game::config::*;
 use crate::rotation::{SRSRotationSystem, RotationSystem, RotationResult};
+use crate::scoring::{TetrisScoring, ScoringAction, LineClearType, PerfectClearDetector, determine_line_clear_type};
 use serde::{Serialize, Deserialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -99,6 +100,9 @@ pub struct Game {
     
     /// Super Rotation System for handling piece rotation with wall kicks
     pub rotation_system: SRSRotationSystem,
+    
+    /// Enhanced scoring system with T-spins, combos, and back-to-back bonuses
+    pub scoring_system: TetrisScoring,
 }
 
 impl Game {
@@ -146,6 +150,7 @@ impl Game {
             last_action_was_rotation: false,
             
             rotation_system: SRSRotationSystem::new(),
+            scoring_system: TetrisScoring::new(),
         };
         
         // Spawn the first piece
@@ -338,18 +343,65 @@ impl Game {
         }
     }
     
-    /// Add score for cleared lines
+    /// Add score for cleared lines using enhanced scoring system
     pub fn add_score_for_lines(&mut self, lines_cleared: u32) {
-        let base_score = match lines_cleared {
-            1 => SCORE_SINGLE_LINE,
-            2 => SCORE_DOUBLE_LINE,
-            3 => SCORE_TRIPLE_LINE,
-            4 => SCORE_TETRIS,
-            _ => 0,
+        if lines_cleared == 0 {
+            // No lines cleared - break combo but preserve back-to-back
+            self.scoring_system.process_no_line_clear();
+            return;
+        }
+        
+        let level = self.board.level();
+        
+        // Determine if this was a T-spin and what type
+        let is_t_spin = self.is_t_spin();
+        let is_mini_t_spin = false; // TODO: Implement mini T-spin detection later
+        
+        // Determine line clear type
+        let line_clear_type = determine_line_clear_type(lines_cleared, is_t_spin, is_mini_t_spin)
+            .unwrap_or(LineClearType::Single); // Fallback, should not happen
+        
+        // Check for perfect clear
+        let perfect_clear = PerfectClearDetector::check_perfect_clear(&self.board, lines_cleared);
+        
+        // Check if back-to-back bonus should apply
+        let back_to_back = line_clear_type.is_difficult() && self.scoring_system.is_back_to_back_ready();
+        
+        // Create scoring action
+        let action = ScoringAction {
+            line_clear_type,
+            perfect_clear,
+            level,
+            combo: self.scoring_system.current_combo(),
+            back_to_back,
         };
         
-        // Multiply by level for higher scores at higher levels
-        self.score += base_score * self.board.level();
+        // Process the scoring
+        let result = self.scoring_system.process_line_clear(action);
+        
+        // Update the game's score (keep backward compatibility)
+        self.score = self.scoring_system.total_score();
+        
+        // Log detailed scoring info
+        log::info!("Line clear scoring: {} | Base: {} | Combo: {} | B2B: {} | Perfect: {} | Total: {}",
+                   line_clear_type.name(),
+                   result.base_score,
+                   result.combo_bonus,
+                   result.back_to_back_bonus,
+                   result.perfect_clear_bonus,
+                   result.total_score);
+        
+        if result.combo_bonus > 0 {
+            log::info!("COMBO: {}x chain!", result.new_combo);
+        }
+        
+        if result.back_to_back_bonus > 0 {
+            log::info!("BACK-TO-BACK: {} bonus!", line_clear_type.name());
+        }
+        
+        if result.perfect_clear_bonus > 0 {
+            log::info!("PERFECT CLEAR: All blocks cleared!");
+        }
     }
     
     /// Try to move the current piece
@@ -467,8 +519,9 @@ impl Game {
                 drop_distance += 1;
             }
             
-            // Add score for hard drop
-            self.score += (drop_distance as u32) * SCORE_HARD_DROP;
+            // Add hard drop points through enhanced scoring system
+            self.scoring_system.add_drop_points((drop_distance as u32) * SCORE_HARD_DROP);
+            self.score = self.scoring_system.total_score();
             
             // Immediately lock the piece after hard drop - no lock delay
             self.lock_current_piece();
@@ -575,7 +628,9 @@ impl Game {
     pub fn update_soft_drop(&mut self, is_held: bool) {
         if is_held && self.soft_drop_timer >= SOFT_DROP_INTERVAL {
             if self.move_piece(0, 1) {
-                self.score += SCORE_SOFT_DROP;
+                // Add soft drop points through enhanced scoring system
+                self.scoring_system.add_drop_points(SCORE_SOFT_DROP);
+                self.score = self.scoring_system.total_score();
                 self.soft_drop_timer = 0.0;
             }
         }
