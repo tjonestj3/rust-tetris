@@ -7,18 +7,20 @@
 ## 📋 Table of Contents
 
 1. [Introduction](#introduction)
-2. [Project Overview](#project-overview)
-3. [Core Rust Concepts Demonstrated](#core-rust-concepts-demonstrated)
-4. [Project Architecture Deep Dive](#project-architecture-deep-dive)
-5. [Ownership and Borrowing in Action](#ownership-and-borrowing-in-action)
-6. [Error Handling Patterns](#error-handling-patterns)
-7. [Trait System Usage](#trait-system-usage)
-8. [Pattern Matching Excellence](#pattern-matching-excellence)
-9. [Memory Safety and Performance](#memory-safety-and-performance)
-10. [Advanced Rust Features](#advanced-rust-features)
-11. [Game Logic Implementation](#game-logic-implementation)
-12. [Hands-On Learning Exercises](#hands-on-learning-exercises)
-13. [Next Steps](#next-steps)
+2. [Start Here: Rust Basics With Your Tetris Game](#-start-here-rust-basics-with-your-tetris-game)
+3. [Project Overview](#project-overview)
+4. [Current Feature Map](#-current-feature-map)
+5. [Core Rust Concepts Demonstrated](#core-rust-concepts-demonstrated)
+6. [Project Architecture Deep Dive](#project-architecture-deep-dive)
+7. [Ownership and Borrowing in Action](#ownership-and-borrowing-in-action)
+8. [Error Handling Patterns](#error-handling-patterns)
+9. [Trait System Usage](#trait-system-usage)
+10. [Pattern Matching Excellence](#pattern-matching-excellence)
+11. [Memory Safety and Performance](#memory-safety-and-performance)
+12. [Advanced Rust Features](#advanced-rust-features)
+13. [Game Logic Implementation](#game-logic-implementation)
+14. [Step-by-step Labs and Exercises](#-step-by-step-labs-and-exercises)
+15. [Next Steps](#next-steps)
 
 ---
 
@@ -32,6 +34,409 @@ Welcome to an innovative approach to learning Rust! This guide uses your Tetris 
 - **Progressive complexity**: From basic syntax to advanced patterns
 - **Performance-focused**: See how Rust's zero-cost abstractions work
 - **Safety-first**: Understand how Rust prevents common bugs
+
+---
+
+## 🌱 Start Here: Rust Fundamentals Through Your Tetris Game
+
+### Prerequisites and Setup
+
+**Running Your Game:**
+```bash
+# Debug build (faster compile times, slower runtime)
+cargo run
+
+# Release build (slower compile, optimized performance - use for actual play)
+cargo run --release
+
+# Code formatting and linting (recommended workflow)
+cargo fmt      # Format code to Rust standards
+cargo clippy   # Catch common mistakes and suggest improvements
+```
+
+**Essential File Map:**
+- **Entry Point:** `src/main.rs` - Application lifecycle and main game loop
+- **Game Core:** `src/game/state.rs` - Game state, update logic, piece management
+- **Configuration:** `src/game/config.rs` - Constants, timing, and game parameters
+- **Game Board:** `src/board/board.rs` - 2D grid, line clearing, collision detection
+- **Game Pieces:** `src/tetromino/types.rs` + `src/tetromino/data.rs` - Piece definitions and shape data
+- **Rotation System:** `src/rotation/srs.rs` - Super Rotation System with wall kicks
+- **User Interface:** `src/menu/mod.rs` - Menus, settings, high scores
+- **Audio System:** `src/audio/system.rs` - Sound effects and music management
+
+### Core Rust Concepts (With Your Code)
+
+#### 1. Variables and Mutability
+
+Rust variables are **immutable by default** - you must explicitly opt into mutability:
+
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/main.rs start=73
+// From your main.rs - notice the explicit mut keywords
+let mut frame_count = 0u64;              // Mutable counter - can be changed
+let mut last_fps_time = get_time();      // Mutable timestamp - updates each frame
+let mut fps = 0.0;                       // Mutable FPS calculation result
+let auto_save_interval = 30.0;           // Immutable constant - never changes
+let mut last_game_state_hash = 0u64;     // Mutable for state change detection
+```
+
+**Key Learning Points:**
+- `mut` must be explicitly declared - prevents accidental modifications
+- Type annotations (like `0u64`) are optional when Rust can infer them
+- Immutable by default encourages functional programming patterns
+- The compiler will error if you try to modify an immutable variable
+
+#### 2. Functions vs Methods
+
+**Standalone Functions:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/main.rs start=22
+/// Window configuration for macroquad - standalone function
+fn window_conf() -> Conf {
+    Conf {
+        window_title: WINDOW_TITLE.to_owned(),    // Convert &str to String
+        window_width: WINDOW_WIDTH,               // Copy integer value
+        window_height: WINDOW_HEIGHT,
+        window_resizable: false,                  // Boolean literal
+        high_dpi: false,
+        ..Default::default()                      // Use default values for other fields
+    }
+}
+```
+
+**Methods (associated with structs):**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/state.rs start=165
+// From Game struct - methods operate on struct instances
+impl Game {
+    /// Update game logic - takes mutable reference to self
+    pub fn update(&mut self, delta_time: f64) {
+        // &mut self allows us to modify game state fields
+        if self.state != GameState::Playing {
+            return;  // Early return for non-playing states
+        }
+        
+        self.piece_just_locked = false;    // Modify struct field
+        self.game_time += delta_time;       // Accumulate time
+        // ... more mutations ...
+    }
+    
+    /// Get current level - takes immutable reference to self
+    pub fn level(&self) -> u32 {
+        // &self is read-only - cannot modify game state
+        self.board.level()  // Delegate to board's level method
+    }
+}
+```
+
+**Key Learning Points:**
+- `&mut self` = "borrow this struct mutably" (can read and write fields)
+- `&self` = "borrow this struct immutably" (can only read fields)
+- `self` = "take ownership of this struct" (rarely used, consumes the value)
+- Methods provide namespaced, type-safe operations on data
+
+#### 3. Enums and Pattern Matching
+
+**Enum Definition:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/state.rs start=14
+/// Game states - exhaustive enum prevents invalid states
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GameState {
+    Menu,        // In the start menu
+    Playing,     // Actively playing the game
+    Paused,      // Game is paused
+    GameOver,    // Game has ended
+}
+```
+
+**Pattern Matching:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/main.rs start=97
+// From your main application loop - exhaustive matching
+match app_state {
+    AppState::Menu => {
+        // Update menu system
+        menu_system.update(delta_time as f64);
+        
+        // Handle menu input and get the user's choice
+        let action = menu_system.handle_input();
+        
+        match action {
+            MenuAction::NewGame => {
+                log::info!("Starting new game");
+                game = Some(Game::new());      // Create new game instance
+                app_state = AppState::Playing; // Transition to playing state
+            },
+            MenuAction::LoadGame => {
+                // Attempt to load saved game with error handling
+                match Game::load_from_file(&save_path) {
+                    Ok(loaded_game) => {
+                        game = Some(loaded_game);
+                        app_state = AppState::Playing;
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to load save file: {}", e);
+                        // Graceful fallback to new game
+                        game = Some(Game::new());
+                        app_state = AppState::Playing;
+                    }
+                }
+            },
+            MenuAction::Quit => std::process::exit(0),
+            MenuAction::None => {}, // Continue in menu
+        }
+        
+        // Render the menu
+        menu_system.render(&background_texture);
+    },
+    AppState::Playing => {
+        // Game playing logic here...
+    },
+    AppState::GameOver => {
+        // Game over handling here...
+    }
+}
+```
+
+**Key Learning Points:**
+- Enums represent "one of several possible values" (sum types)
+- Pattern matching is **exhaustive** - compiler ensures all cases are handled
+- `match` arms can have complex patterns and guards
+- Nested matching allows handling complex control flow safely
+
+#### 4. Structs and Associated Functions
+
+**Struct Definition:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/tetromino/types.rs start=63
+/// Represents a tetromino piece in the game
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Tetromino {
+    /// The type of tetromino (I, O, T, S, Z, J, L)
+    pub piece_type: TetrominoType,
+    /// Current position (x, y) of the piece center
+    pub position: (i32, i32),
+    /// Current rotation state (0-3 representing 0°, 90°, 180°, 270°)
+    pub rotation: u8,
+    /// The blocks that make up this piece (relative to center position)
+    pub blocks: Vec<(i32, i32)>,
+}
+```
+
+**Implementation Block with Methods:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/tetromino/types.rs start=75
+impl Tetromino {
+    /// Create a new tetromino at the spawn position
+    pub fn new(piece_type: TetrominoType) -> Self {
+        let mut tetromino = Self {
+            piece_type,                          // Shorthand for piece_type: piece_type
+            position: (4, 2),                    // Start in middle of board, slightly down
+            rotation: 0,                         // Start with no rotation
+            blocks: Vec::new(),                  // Empty vector, will be populated
+        };
+        tetromino.update_blocks();               // Calculate block positions
+        tetromino                                // Return the new tetromino
+    }
+    
+    /// Move the tetromino by the specified offset
+    pub fn move_by(&mut self, dx: i32, dy: i32) {
+        self.position.0 += dx;                   // Modify x coordinate
+        self.position.1 += dy;                   // Modify y coordinate
+        // Note: blocks are relative to position, so no need to update them
+    }
+    
+    /// Get the absolute positions of all blocks in world coordinates
+    pub fn absolute_blocks(&self) -> Vec<(i32, i32)> {
+        self.blocks.iter()                       // Create iterator over block positions
+            .map(|(dx, dy)| (                    // Transform each relative position
+                self.position.0 + dx,            // Add piece position to relative x
+                self.position.1 + dy             // Add piece position to relative y
+            ))
+            .collect()                           // Collect results into Vec
+    }
+}
+```
+
+**Key Learning Points:**
+- `#[derive(...)]` automatically implements common traits
+- `Self` refers to the struct type being implemented
+- Methods can take `self`, `&self`, or `&mut self` depending on ownership needs
+- Iterator chains like `.iter().map().collect()` are zero-cost abstractions
+
+#### 5. Ownership and Option<T>
+
+**Option for Safe Null Handling:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/state.rs start=273
+/// Lock the current piece to the board and spawn a new one
+pub fn lock_current_piece(&mut self) {
+    // .take() moves the value out of Option, replacing it with None
+    if let Some(piece) = self.current_piece.take() {
+        // 'piece' is now owned by this scope, not borrowed
+        
+        log::debug!("Locking piece {:?} at position ({}, {})",
+                   piece.piece_type, piece.position.0, piece.position.1);
+        
+        // Set flag for audio feedback
+        self.piece_just_locked = true;
+        
+        // Place the piece on the board - consuming ownership
+        for (x, y) in piece.absolute_blocks() {
+            if x >= 0 && y >= 0 {
+                self.board.set_cell(x, y, Cell::Filled(piece.color()));
+            }
+        }
+        
+        // Check for line clears
+        let complete_lines = self.board.find_complete_lines();
+        if !complete_lines.is_empty() {
+            self.start_line_clear_animation(complete_lines);
+            return; // Don't spawn next piece during animation
+        }
+        
+        // Spawn the next piece
+        self.spawn_next_piece();
+    }
+    // If current_piece was None, this function does nothing
+}
+```
+
+**Borrowing for Validation:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/state.rs start=263
+/// Check if the current piece is in a valid position
+pub fn is_piece_valid(&self, piece: &Tetromino) -> bool {
+    // Borrow the piece immutably - we don't need to own it
+    for (x, y) in piece.absolute_blocks() {
+        // Check each block position for validity
+        if !self.board.is_position_valid(x, y) {
+            return false;  // Early return if any block is invalid
+        }
+    }
+    true  // All blocks are in valid positions
+}
+```
+
+**Key Learning Points:**
+- `Option<T>` replaces null pointers - either `Some(value)` or `None`
+- `.take()` moves a value out of Option, replacing it with None
+- Borrowing (`&T`) allows reading without taking ownership
+- `if let Some(value) = option` is idiomatic for extracting Option values
+
+#### 6. Error Handling with Result<T, E>
+
+**File Operations with Error Handling:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/state.rs start=672
+/// Save the game state to a file
+pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    // Convert the game state to JSON - may fail
+    let json = serde_json::to_string_pretty(self)?;  // ? propagates errors
+    
+    // Write to file - may also fail
+    fs::write(path, json)?;                          // ? propagates errors
+    
+    log::info!("Game saved successfully");
+    Ok(())  // Return success value
+}
+
+/// Load the game state from a file  
+pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    // Read file contents - may fail if file doesn't exist
+    let json = fs::read_to_string(path)?;
+    
+    // Parse JSON - may fail if format is invalid
+    let game: Game = serde_json::from_str(&json)?;
+    
+    log::info!("Game loaded successfully");
+    Ok(game)  // Return the loaded game
+}
+```
+
+**Graceful Error Handling in Audio System:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/main.rs start=52
+// Initialize and load audio system
+let mut audio_system = AudioSystem::new();
+if let Err(e) = audio_system.load_sounds().await {
+    // Don't crash the game if audio fails - just log a warning
+    log::warn!("Failed to initialize audio system: {}", e);
+    // Game continues without audio
+}
+```
+
+**Key Learning Points:**
+- `Result<T, E>` represents either success `Ok(T)` or failure `Err(E)`
+- `?` operator propagates errors up the call stack automatically
+- `Box<dyn std::error::Error>` accepts any error type (trait object)
+- Graceful degradation allows programs to continue despite partial failures
+
+#### 7. Modules and Visibility
+
+**Module Declaration:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/lib.rs start=1
+//! Rust Tetris Game Library
+//! 
+//! A high-performance Tetris implementation focusing on smooth 60fps gameplay,
+//! clean architecture, and extensible design.
+
+// Declare public modules - these can be used by external code
+pub mod audio;      // Audio system for sound effects and music
+pub mod board;      // Game board and cell management
+pub mod game;       // Core game state and logic
+pub mod graphics;   // Colors and visual constants
+pub mod input;      // Input handling (placeholder)
+pub mod tetromino;  // Tetromino pieces and movement
+
+// Additional modules for extended functionality
+pub mod leaderboard;  // High score tracking
+pub mod menu;         // Menu system and settings
+pub mod rotation;     // SRS rotation system
+pub mod scoring;      // Advanced scoring with combos and T-spins
+
+// Re-export commonly used items for convenience
+pub use game::Game;           // Main game struct
+pub use board::Board;         // Game board
+pub use menu::MenuSystem;     // Menu system
+```
+
+**Module Usage:**
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/main.rs start=1
+// Import specific items from modules
+use rust_tetris::game::config::*;                    // Import all constants
+use rust_tetris::graphics::colors::*;                // Import all colors
+use rust_tetris::game::{Game, GameState};            // Import specific types
+use rust_tetris::audio::system::{AudioSystem, SoundType};
+use rust_tetris::{MenuSystem, MenuAction};           // Use re-exports from lib.rs
+```
+
+**Key Learning Points:**
+- Modules organize code into logical units
+- `pub mod` makes modules accessible to external code
+- `pub use` creates convenient re-exports
+- `use` statements bring items into scope
+- `::` is the path separator for nested modules
+
+### 🗺️ Current Architecture Overview
+
+Your Tetris game demonstrates several advanced Rust patterns:
+
+**State Management:**
+- App-level state machine (`AppState`: Menu, Playing, GameOver)
+- Game-level state machine (`GameState`: Playing, Paused, GameOver) 
+- Complex state transitions with validation
+
+**Memory Management:**
+- Stack-allocated 2D arrays for the game board (cache-friendly)
+- Owned vs borrowed data with clear ownership patterns
+- Option<T> for nullable game pieces
+
+**Error Resilience:**
+- Graceful degradation (game works without audio)
+- File I/O with proper error handling
+- State persistence with rollback on failure
+
+**Performance Features:**
+- Zero-cost abstractions (iterators compile to loops)
+- Compile-time constants for game parameters
+- Efficient data structures (arrays vs vectors where appropriate)
+
+**Modern Rust Features:**
+- Async/await for resource loading
+- Trait derivation for common functionality
+- Pattern matching for complex control flow
+- Module system for code organization
 
 ---
 
@@ -874,110 +1279,541 @@ pub fn update(&mut self, delta_time: f64) {
 
 ---
 
-## 🏋️ Hands-On Learning Exercises
+## 🧪 Step-by-Step Labs and Exercises
 
-### Exercise 1: Add a New Tetromino Shape
+### Lab 1: Understanding and Modifying Constants (Beginner)
 
-**Difficulty**: Beginner  
-**Concepts**: Enums, Pattern Matching, Arrays
+**Learning Goals**: Basic Rust syntax, constants, type system, compilation
 
-Add a new Tetromino shape (like a plus sign "+") to the game:
+**Task**: Modify your game's behavior by changing constants in `src/game/config.rs`.
 
-1. Add `Plus` variant to `TetrominoType` enum
-2. Add color constant in `colors.rs`
-3. Implement shape data in `data.rs`
-4. Update pattern matching in `color()` method
+**Step 1**: Open `src/game/config.rs` and examine the constants:
 
-**Solution Framework**:
-```rust
-// In tetromino/types.rs
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/game/config.rs start=3
+/// Game board dimensions
+pub const BOARD_WIDTH: usize = 10;       // Width in cells
+pub const BOARD_HEIGHT: usize = 20;      // Height in cells  
+pub const VISIBLE_HEIGHT: usize = 20;    // How many rows player sees
+pub const BUFFER_HEIGHT: usize = 4;      // Extra spawn area above board
+
+/// Game timing (in seconds)
+pub const INITIAL_DROP_TIME: f64 = 1.0;  // Seconds between automatic drops
+pub const LOCK_DELAY: f64 = 0.5;         // Time before piece locks in place
+pub const SOFT_DROP_INTERVAL: f64 = 0.05; // Time between soft drop steps
+```
+
+**Step 2**: Make the game easier by changing drop timing:
+- Change `INITIAL_DROP_TIME` from `1.0` to `2.0` (slower piece falling)
+- Change `LOCK_DELAY` from `0.5` to `1.0` (more time to position pieces)
+
+**Step 3**: Test your changes:
+```bash
+cargo run
+```
+
+**Step 4**: Understanding the type system - try changing `BOARD_WIDTH` to `15` and see how the rendering adapts automatically.
+
+**Key Rust Concepts Learned:**
+- Constants vs variables (`const` vs `let`)
+- Type annotations (`f64`, `usize`) and their importance
+- Public visibility (`pub const`)
+- How constants are used throughout the codebase
+
+---
+
+### Lab 2: Adding a New Tetromino Shape (Intermediate)
+
+**Learning Goals**: Enums, pattern matching, Vec operations, code organization
+
+**Task**: Add a new tetromino shape (Plus "+" sign) to demonstrate enum extension.
+
+**Step 1**: Add the new enum variant in `src/tetromino/types.rs`:
+
+```rust path=/home/xenocide/rust-projects/rust-tetris/src/tetromino/types.rs start=9
+/// Seven standard Tetris pieces + one custom
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TetrominoType {
-    I, O, T, S, Z, J, L,
-    Plus, // Add this
-}
-
-// In tetromino/data.rs
-fn get_plus_piece_blocks(_rotation: u8) -> Vec<(i32, i32)> {
-    // Plus shape doesn't rotate
-    vec![(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]
+    I, // Line piece (cyan)
+    O, // Square piece (yellow)  
+    T, // T-piece (purple)
+    S, // S-piece (green)
+    Z, // Z-piece (red)
+    J, // J-piece (blue)
+    L, // L-piece (orange)
+    Plus, // Plus piece (custom - magenta) - ADD THIS LINE
 }
 ```
 
-### Exercise 2: Implement a Score Multiplier System
+**Step 2**: Update the `all()` method to include your new piece:
 
-**Difficulty**: Intermediate  
-**Concepts**: Structs, Methods, State Management
-
-Add a multiplier that increases when clearing multiple lines in succession:
-
-1. Add `combo_multiplier` field to game state
-2. Modify scoring system to use multiplier
-3. Reset multiplier when no lines are cleared
-4. Display multiplier in UI
-
-### Exercise 3: Add Pause-Safe Timers
-
-**Difficulty**: Intermediate  
-**Concepts**: Ownership, State Management, Time Handling
-
-Create a timer system that automatically pauses when the game is paused:
-
-1. Create a `Timer` struct with pause capability
-2. Replace raw `f64` timers with `Timer` instances
-3. Implement pause/resume functionality
-4. Ensure all timers respect game state
-
-### Exercise 4: Implement Custom Serialization for Audio Settings
-
-**Difficulty**: Advanced  
-**Concepts**: Traits, Serialization, Error Handling
-
-Create a custom serialization format for audio settings:
-
-1. Implement `Serialize`/`Deserialize` for `AudioSystem`
-2. Handle missing sound files gracefully
-3. Add versioning to save format
-4. Create migration system for old saves
-
-### Exercise 5: Add Real-time Performance Metrics
-
-**Difficulty**: Advanced  
-**Concepts**: Collections, Iterators, Performance Measurement
-
-Implement a performance monitoring system:
-
-1. Track frame times in a circular buffer
-2. Calculate running averages and percentiles
-3. Detect performance problems automatically
-4. Display metrics in debug mode
-
-**Solution Framework**:
 ```rust
-struct PerformanceMonitor {
-    frame_times: VecDeque<f64>,
-    max_samples: usize,
+pub fn all() -> [TetrominoType; 8] {  // Changed from 7 to 8
+    [TetrominoType::I, TetrominoType::O, TetrominoType::T, 
+     TetrominoType::S, TetrominoType::Z, TetrominoType::J, 
+     TetrominoType::L, TetrominoType::Plus]  // Added Plus
 }
+```
 
-impl PerformanceMonitor {
-    pub fn record_frame(&mut self, delta_time: f64) {
-        if self.frame_times.len() >= self.max_samples {
-            self.frame_times.pop_front();
-        }
-        self.frame_times.push_back(delta_time);
-    }
-    
-    pub fn average_fps(&self) -> f64 {
-        let total: f64 = self.frame_times.iter().sum();
-        self.frame_times.len() as f64 / total
-    }
-    
-    pub fn percentile_99(&self) -> f64 {
-        let mut sorted: Vec<_> = self.frame_times.iter().cloned().collect();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        sorted[sorted.len() * 99 / 100]
+**Step 3**: Add color for the new piece in `src/graphics/colors.rs`:
+
+```rust
+// Add this line to colors.rs
+pub const TETROMINO_PLUS: Color = Color::new(1.0, 0.0, 1.0, 1.0); // Magenta
+```
+
+**Step 4**: Update the color matching in `src/tetromino/types.rs`:
+
+```rust
+pub fn color(self) -> Color {
+    match self {
+        TetrominoType::I => TETROMINO_I,
+        TetrominoType::O => TETROMINO_O,
+        TetrominoType::T => TETROMINO_T,
+        TetrominoType::S => TETROMINO_S,
+        TetrominoType::Z => TETROMINO_Z,
+        TetrominoType::J => TETROMINO_J,
+        TetrominoType::L => TETROMINO_L,
+        TetrominoType::Plus => TETROMINO_PLUS, // ADD THIS LINE
     }
 }
 ```
+
+**Step 5**: Define the shape in `src/tetromino/data.rs`:
+
+```rust
+// Add this function to data.rs
+/// Plus-piece - doesn't rotate, always same shape  
+fn get_plus_piece_blocks(_rotation: u8) -> Vec<(i32, i32)> {
+    vec![
+        (0, 0),   // Center block
+        (-1, 0),  // Left block
+        (1, 0),   // Right block  
+        (0, -1),  // Top block
+        (0, 1),   // Bottom block
+    ]
+}
+```
+
+**Step 6**: Update the main shape function:
+
+```rust
+// In get_tetromino_blocks function, add this case:
+pub fn get_tetromino_blocks(piece_type: TetrominoType, rotation: u8) -> Vec<(i32, i32)> {
+    match piece_type {
+        TetrominoType::I => get_i_piece_blocks(rotation),
+        TetrominoType::O => get_o_piece_blocks(rotation),
+        TetrominoType::T => get_t_piece_blocks(rotation),
+        TetrominoType::S => get_s_piece_blocks(rotation),
+        TetrominoType::Z => get_z_piece_blocks(rotation),
+        TetrominoType::J => get_j_piece_blocks(rotation),
+        TetrominoType::L => get_l_piece_blocks(rotation),
+        TetrominoType::Plus => get_plus_piece_blocks(rotation), // ADD THIS
+    }
+}
+```
+
+**Step 7**: Test your new piece:
+```bash
+cargo run
+```
+
+**Key Rust Concepts Learned:**
+- Enum extension and exhaustive pattern matching
+- Vec creation with `vec!` macro
+- Import statements and module organization
+- How the compiler ensures all cases are handled
+- Coordinate systems and relative positioning
+
+---
+
+### Lab 3: Implementing a Simple Timer Struct (Intermediate)
+
+**Learning Goals**: Struct design, methods, ownership, state management
+
+**Task**: Create a reusable Timer struct that can be paused and resumed.
+
+**Step 1**: Create a new file `src/game/timer.rs` with this Timer implementation:
+
+```rust
+//! Pause-safe timer implementation
+
+#[derive(Debug, Clone)]
+pub struct Timer {
+    /// Current accumulated time
+    elapsed: f64,
+    /// Whether this timer is currently paused
+    paused: bool,
+}
+
+impl Timer {
+    /// Create a new timer starting at zero
+    pub fn new() -> Self {
+        Self {
+            elapsed: 0.0,
+            paused: false,
+        }
+    }
+    
+    /// Update the timer with delta time (only if not paused)
+    pub fn update(&mut self, delta_time: f64) {
+        if !self.paused {
+            self.elapsed += delta_time;
+        }
+    }
+    
+    /// Get current elapsed time
+    pub fn elapsed(&self) -> f64 {
+        self.elapsed
+    }
+    
+    /// Pause this timer
+    pub fn pause(&mut self) {
+        self.paused = true;
+    }
+    
+    /// Resume this timer
+    pub fn resume(&mut self) {
+        self.paused = false;
+    }
+    
+    /// Reset timer to zero
+    pub fn reset(&mut self) {
+        self.elapsed = 0.0;
+    }
+    
+    /// Check if enough time has passed for an interval
+    pub fn check_interval(&mut self, interval: f64) -> bool {
+        if self.elapsed >= interval {
+            self.elapsed -= interval; // Reset for next interval
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+```
+
+**Step 2**: Add the timer module to `src/game/mod.rs`:
+
+```rust
+pub mod config;
+pub mod state;
+pub mod timer;  // ADD THIS LINE
+
+pub use state::{Game, GameState};
+pub use timer::Timer;  // ADD THIS LINE
+```
+
+**Step 3**: Replace a raw timer in Game struct. In `src/game/state.rs`, find the Game struct and replace one of the f64 timers:
+
+```rust
+// Change this field:
+pub ghost_block_blink_timer: f64,
+
+// To this:
+pub ghost_block_blink_timer: Timer,
+```
+
+**Step 4**: Update the Game::new() method:
+
+```rust
+// In Game::new(), change:
+ghost_block_blink_timer: 0.0,
+
+// To:
+ghost_block_blink_timer: Timer::new(),
+```
+
+**Step 5**: Update the usage in Game::update():
+
+```rust
+// Find this line:
+self.ghost_block_blink_timer += delta_time;
+
+// Replace with:
+self.ghost_block_blink_timer.update(delta_time);
+```
+
+**Step 6**: Update any code that reads the timer value:
+
+```rust
+// Change references like:
+self.ghost_block_blink_timer
+
+// To:
+self.ghost_block_blink_timer.elapsed()
+```
+
+**Step 7**: Test your timer implementation:
+```bash
+cargo run
+```
+
+**Key Rust Concepts Learned:**
+- Struct design with private fields
+- Method chaining and fluent APIs
+- Default trait implementation
+- Module organization and re-exports
+- Refactoring existing code safely
+
+---
+
+### Lab 4: Error Handling and File I/O (Advanced)
+
+**Learning Goals**: Result<T, E>, error propagation, file operations, JSON serialization
+
+**Task**: Add a simple settings file that survives game restarts.
+
+**Step 1**: Create a simple settings struct in `src/game/settings.rs`:
+
+```rust
+//! Game settings persistence
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameSettings {
+    /// Master volume (0.0 to 1.0)
+    pub master_volume: f32,
+    /// Whether to show FPS counter
+    pub show_fps: bool,
+    /// Player's preferred drop speed multiplier
+    pub speed_multiplier: f64,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self {
+            master_volume: 0.7,
+            show_fps: false,
+            speed_multiplier: 1.0,
+        }
+    }
+}
+
+impl GameSettings {
+    /// Save settings to a JSON file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        // Serialize to pretty JSON string - may fail
+        let json = serde_json::to_string_pretty(self)?;
+        
+        // Write to file - may fail
+        fs::write(path, json)?;
+        
+        log::info!("Settings saved successfully");
+        Ok(()) // Success!
+    }
+    
+    /// Load settings from JSON file
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        // Read file contents - may fail
+        let json = fs::read_to_string(path)?;
+        
+        // Parse JSON - may fail
+        let settings: GameSettings = serde_json::from_str(&json)?;
+        
+        log::info!("Settings loaded successfully");
+        Ok(settings)
+    }
+    
+    /// Load settings, or create default if file doesn't exist
+    pub fn load_or_default<P: AsRef<Path>>(path: P) -> Self {
+        match Self::load_from_file(&path) {
+            Ok(settings) => {
+                log::info!("Loaded existing settings");
+                settings
+            },
+            Err(e) => {
+                log::info!("Could not load settings ({}), using defaults", e);
+                Self::default()
+            }
+        }
+    }
+}
+```
+
+**Step 2**: Add the settings module to `src/game/mod.rs`:
+
+```rust
+pub mod settings;  // ADD THIS
+
+pub use settings::GameSettings;  // ADD THIS
+```
+
+**Step 3**: Use your settings in main.rs. Add this after the game initialization:
+
+```rust
+// Load or create settings
+let settings_path = "game_settings.json";
+let mut game_settings = GameSettings::load_or_default(settings_path);
+
+log::info!("Game settings loaded: volume={}, fps={}, speed={}", 
+           game_settings.master_volume, 
+           game_settings.show_fps,
+           game_settings.speed_multiplier);
+```
+
+**Step 4**: Add settings save on exit. In your main loop, add a save before the game ends:
+
+```rust
+// Before std::process::exit(0), add:
+if let Err(e) = game_settings.save_to_file(settings_path) {
+    log::warn!("Failed to save settings: {}", e);
+}
+```
+
+**Step 5**: Test error handling by trying to save to a invalid path:
+
+```rust
+// Try this to see error handling in action:
+if let Err(e) = game_settings.save_to_file("/invalid/path/settings.json") {
+    println!("Expected error: {}", e);
+}
+```
+
+**Key Rust Concepts Learned:**
+- Result<T, E> for error handling
+- ? operator for error propagation
+- Trait objects with `Box<dyn Error>`
+- Generic functions with `AsRef<Path>`
+- Pattern matching on Result variants
+- Graceful error recovery strategies
+
+---
+
+### Lab 5: Iterator Mastery and Performance (Advanced)
+
+**Learning Goals**: Iterator chains, closures, performance optimization, functional programming
+
+**Task**: Implement an efficient board analyzer that finds patterns using iterators.
+
+**Step 1**: Add this analyzer to `src/board/analyzer.rs`:
+
+```rust
+//! Board pattern analysis using Rust iterators
+
+use crate::board::{Board, Cell};
+use crate::game::config::*;
+
+/// Statistics about the current board state
+#[derive(Debug, Clone)]
+pub struct BoardStats {
+    pub filled_cells: usize,
+    pub empty_cells: usize,
+    pub complete_lines: Vec<usize>,
+    pub holes: usize,        // Empty cells with filled cells above
+    pub max_height: usize,   // Highest column
+    pub bumpiness: usize,    // Height variation between columns
+}
+
+impl Board {
+    /// Analyze the board efficiently using iterators
+    pub fn analyze(&self) -> BoardStats {
+        // Count filled and empty cells using iterator chains
+        let (filled_cells, empty_cells) = (0..BOARD_HEIGHT + BUFFER_HEIGHT)
+            .flat_map(|y| (0..BOARD_WIDTH).map(move |x| (x, y)))
+            .map(|(x, y)| self.get_cell(x as i32, y as i32).unwrap_or(Cell::Empty))
+            .fold((0, 0), |(filled, empty), cell| {
+                match cell {
+                    Cell::Empty => (filled, empty + 1),
+                    Cell::Filled(_) => (filled + 1, empty),
+                }
+            });
+        
+        // Find complete lines using iterator filter
+        let complete_lines: Vec<usize> = (0..BOARD_HEIGHT + BUFFER_HEIGHT)
+            .filter(|&y| self.is_line_full(y))
+            .collect();
+        
+        // Calculate column heights using iterators
+        let column_heights: Vec<usize> = (0..BOARD_WIDTH)
+            .map(|x| self.column_height(x))
+            .collect();
+        
+        // Find maximum height
+        let max_height = column_heights.iter().max().copied().unwrap_or(0);
+        
+        // Calculate bumpiness (sum of absolute differences between adjacent columns)
+        let bumpiness = column_heights
+            .windows(2)  // Look at pairs of adjacent columns
+            .map(|pair| (pair[0] as i32 - pair[1] as i32).abs() as usize)
+            .sum();
+        
+        // Count holes (empty cells with filled cells above them)
+        let holes = (0..BOARD_WIDTH)
+            .map(|x| {
+                let mut found_filled = false;
+                let mut hole_count = 0;
+                
+                // Scan from top to bottom
+                for y in 0..BOARD_HEIGHT + BUFFER_HEIGHT {
+                    match self.get_cell(x as i32, y as i32) {
+                        Some(Cell::Filled(_)) => found_filled = true,
+                        Some(Cell::Empty) if found_filled => hole_count += 1,
+                        _ => {},
+                    }
+                }
+                
+                hole_count
+            })
+            .sum();
+        
+        BoardStats {
+            filled_cells,
+            empty_cells,
+            complete_lines,
+            holes,
+            max_height,
+            bumpiness,
+        }
+    }
+}
+```
+
+**Step 2**: Add the analyzer module to `src/board/mod.rs`:
+
+```rust
+pub mod analyzer;  // ADD THIS
+```
+
+**Step 3**: Test your analyzer in the game loop by adding this to main.rs:
+
+```rust
+// Add this inside your main game loop (in the Playing state):
+if frame_count % 300 == 0 {  // Every 5 seconds at 60fps
+    let stats = game.board.analyze();
+    log::info!("Board stats: filled={}, holes={}, height={}, bumpiness={}", 
+               stats.filled_cells, stats.holes, stats.max_height, stats.bumpiness);
+}
+```
+
+**Key Rust Concepts Learned:**
+- Iterator chains with `map`, `filter`, `fold`, `collect`
+- Closures and move semantics
+- `flat_map` for flattening nested iterators
+- `windows` for analyzing adjacent elements
+- Zero-cost abstractions - iterators compile to efficient loops
+- Functional programming patterns in Rust
+
+---
+
+### 🎯 Quick Experiments to Try Right Now
+
+1. **Change game speed**: In `config.rs`, set `INITIAL_DROP_TIME` to `0.1` for super-fast Tetris
+2. **Make a wider board**: Change `BOARD_WIDTH` to `15` and watch everything adapt
+3. **Add debug logging**: Add `log::info!("Piece spawned: {:?}", new_piece.piece_type);` in spawn_next_piece()
+4. **Experiment with colors**: In `colors.rs`, change `TETROMINO_I` to a new color
+5. **Modify scoring**: In the scoring functions, multiply all scores by 10
+
+Each experiment teaches you something about how Rust's type system, modules, and data flow work together!
 
 ---
 
