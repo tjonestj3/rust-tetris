@@ -60,7 +60,7 @@ impl TetrominoType {
 }
 
 /// Represents a tetromino piece in the game
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tetromino {
     /// The type of tetromino
     pub piece_type: TetrominoType,
@@ -91,7 +91,7 @@ impl Tetromino {
     }
     
     /// Update the blocks array based on current type and rotation
-    fn update_blocks(&mut self) {
+    pub fn update_blocks(&mut self) {
         self.blocks = crate::tetromino::data::get_tetromino_blocks(self.piece_type, self.rotation);
     }
     

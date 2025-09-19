@@ -3,6 +3,7 @@
 use crate::board::{Board, Cell};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::game::config::*;
+use crate::rotation::{SRSRotationSystem, RotationSystem, RotationResult};
 use serde::{Serialize, Deserialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -95,6 +96,9 @@ pub struct Game {
     
     /// Track if the last successful action was a rotation (for T-spin detection)
     pub last_action_was_rotation: bool,
+    
+    /// Super Rotation System for handling piece rotation with wall kicks
+    pub rotation_system: SRSRotationSystem,
 }
 
 impl Game {
@@ -140,6 +144,8 @@ impl Game {
             
             legacy_mode: false, // Start in modern mode by default
             last_action_was_rotation: false,
+            
+            rotation_system: SRSRotationSystem::new(),
         };
         
         // Spawn the first piece
@@ -393,35 +399,59 @@ impl Game {
         }
     }
     
-    /// Try to rotate the current piece clockwise
+    /// Try to rotate the current piece clockwise using SRS wall kicks
     pub fn rotate_piece_clockwise(&mut self) -> bool {
-        if let Some(mut piece) = self.current_piece.clone() {
-            piece.rotate_clockwise();
-            
-            if self.is_piece_valid(&piece) {
-                self.current_piece = Some(piece);
-                // Mark that the last successful action was a rotation
-                self.last_action_was_rotation = true;
-                // Check lock state after successful rotation
-                self.update_lock_state_for_current_piece();
-                return true;
+        if let Some(piece) = &self.current_piece {
+            match self.rotation_system.rotate_clockwise(piece, &self.board) {
+                RotationResult::Success { new_piece } => {
+                    self.current_piece = Some(new_piece);
+                    // Mark that the last successful action was a rotation
+                    self.last_action_was_rotation = true;
+                    // Check lock state after successful rotation
+                    self.update_lock_state_for_current_piece();
+                    return true;
+                },
+                RotationResult::SuccessWithKick { new_piece, kick_used: _ } => {
+                    self.current_piece = Some(new_piece);
+                    // Mark that the last successful action was a rotation (with kick)
+                    self.last_action_was_rotation = true;
+                    // Check lock state after successful rotation
+                    self.update_lock_state_for_current_piece();
+                    return true;
+                },
+                RotationResult::Failed => {
+                    // Rotation blocked, piece stays in place
+                    return false;
+                }
             }
         }
         false
     }
     
-    /// Try to rotate the current piece counterclockwise
+    /// Try to rotate the current piece counterclockwise using SRS wall kicks
     pub fn rotate_piece_counterclockwise(&mut self) -> bool {
-        if let Some(mut piece) = self.current_piece.clone() {
-            piece.rotate_counterclockwise();
-            
-            if self.is_piece_valid(&piece) {
-                self.current_piece = Some(piece);
-                // Mark that the last successful action was a rotation
-                self.last_action_was_rotation = true;
-                // Check lock state after successful rotation
-                self.update_lock_state_for_current_piece();
-                return true;
+        if let Some(piece) = &self.current_piece {
+            match self.rotation_system.rotate_counterclockwise(piece, &self.board) {
+                RotationResult::Success { new_piece } => {
+                    self.current_piece = Some(new_piece);
+                    // Mark that the last successful action was a rotation
+                    self.last_action_was_rotation = true;
+                    // Check lock state after successful rotation
+                    self.update_lock_state_for_current_piece();
+                    return true;
+                },
+                RotationResult::SuccessWithKick { new_piece, kick_used: _ } => {
+                    self.current_piece = Some(new_piece);
+                    // Mark that the last successful action was a rotation (with kick)
+                    self.last_action_was_rotation = true;
+                    // Check lock state after successful rotation
+                    self.update_lock_state_for_current_piece();
+                    return true;
+                },
+                RotationResult::Failed => {
+                    // Rotation blocked, piece stays in place
+                    return false;
+                }
             }
         }
         false

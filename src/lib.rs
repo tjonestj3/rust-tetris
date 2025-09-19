@@ -10,6 +10,7 @@ pub mod graphics;
 pub mod input;
 pub mod leaderboard;
 pub mod menu;
+pub mod rotation;
 pub mod tetromino;
 
 // Re-export commonly used items
