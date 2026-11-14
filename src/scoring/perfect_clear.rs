@@ -51,7 +51,7 @@ impl PerfectClearDetector {
 mod tests {
     use super::*;
     use crate::board::{Board, Cell};
-    use macroquad::prelude::Color;
+    use macroquad::prelude::{BLUE, RED};
     
     #[test]
     fn test_empty_board_is_perfect_clear() {
@@ -63,7 +63,7 @@ mod tests {
     fn test_board_with_blocks_is_not_perfect_clear() {
         let mut board = Board::new();
         // Add a single block
-        board.set_cell(5, 19, Cell::Filled(Color::RED));
+        board.set_cell(5, 19, Cell::Filled(RED));
         assert!(!PerfectClearDetector::is_perfect_clear(&board));
     }
     
@@ -95,7 +95,7 @@ mod tests {
         
         // Board with blocks should return None
         let mut filled_board = Board::new();
-        filled_board.set_cell(0, 23, Cell::Filled(Color::BLUE));
+        filled_board.set_cell(0, 23, Cell::Filled(BLUE));
         assert_eq!(
             PerfectClearDetector::check_perfect_clear(&filled_board, 1),
             None

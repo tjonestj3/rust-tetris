@@ -692,9 +692,7 @@ impl Game {
     
     /// Get the default save file path
     pub fn default_save_path() -> std::path::PathBuf {
-        std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("tetris_save.json")
+        crate::platform::data_file("tetris_save.json")
     }
     
     /// Get a hash of the current game state for efficient change detection

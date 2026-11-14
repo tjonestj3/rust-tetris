@@ -113,9 +113,7 @@ impl Leaderboard {
     
     /// Get the default leaderboard file path
     pub fn default_path() -> std::path::PathBuf {
-        std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("tetris_leaderboard.json")
+        crate::platform::data_file("tetris_leaderboard.json")
     }
     
     /// Save leaderboard to file

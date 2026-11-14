@@ -8,7 +8,7 @@ mod tests {
     use super::super::srs::*;
     use crate::board::{Board, Cell};
     use crate::tetromino::{Tetromino, TetrominoType};
-    use macroquad::prelude::Color;
+    use macroquad::prelude::GRAY;
 
     /// Helper function to create a board with walls on the sides
     fn create_confined_board() -> Board {
@@ -16,8 +16,8 @@ mod tests {
         
         // Add walls on left and right sides for testing wall kicks
         for y in 15..24 {  // Bottom portion of visible area
-            board.set_cell(0, y, Cell::Filled(Color::GRAY));
-            board.set_cell(9, y, Cell::Filled(Color::GRAY));
+            board.set_cell(0, y, Cell::Filled(GRAY));
+            board.set_cell(9, y, Cell::Filled(GRAY));
         }
         
         board
@@ -29,7 +29,7 @@ mod tests {
         
         // Add floor at the bottom
         for x in 0..10 {
-            board.set_cell(x, 23, Cell::Filled(Color::GRAY));
+            board.set_cell(x, 23, Cell::Filled(GRAY));
         }
         
         board
@@ -184,7 +184,7 @@ mod tests {
         for x in (center_x - 2)..(center_x + 3) {
             for y in (center_y - 2)..(center_y + 3) {
                 if x != center_x || y != center_y {
-                    board.set_cell(x, y, Cell::Filled(Color::GRAY));
+                    board.set_cell(x, y, Cell::Filled(GRAY));
                 }
             }
         }
@@ -206,9 +206,9 @@ mod tests {
         let t_y = 20;
         
         // Fill 3 corners around the T-piece to create T-spin condition
-        board.set_cell(t_x - 1, t_y - 1, Cell::Filled(Color::GRAY)); // Top-left
-        board.set_cell(t_x + 1, t_y - 1, Cell::Filled(Color::GRAY)); // Top-right
-        board.set_cell(t_x - 1, t_y + 1, Cell::Filled(Color::GRAY)); // Bottom-left
+        board.set_cell(t_x - 1, t_y - 1, Cell::Filled(GRAY)); // Top-left
+        board.set_cell(t_x + 1, t_y - 1, Cell::Filled(GRAY)); // Top-right
+        board.set_cell(t_x - 1, t_y + 1, Cell::Filled(GRAY)); // Bottom-left
         // Leave bottom-right corner open
         
         let mut piece = Tetromino::new(TetrominoType::T);
@@ -234,9 +234,9 @@ mod tests {
         let t_x = 5;
         let t_y = 20;
         
-        board.set_cell(t_x - 1, t_y - 1, Cell::Filled(Color::GRAY));
-        board.set_cell(t_x + 1, t_y - 1, Cell::Filled(Color::GRAY));
-        board.set_cell(t_x - 1, t_y + 1, Cell::Filled(Color::GRAY));
+        board.set_cell(t_x - 1, t_y - 1, Cell::Filled(GRAY));
+        board.set_cell(t_x + 1, t_y - 1, Cell::Filled(GRAY));
+        board.set_cell(t_x - 1, t_y + 1, Cell::Filled(GRAY));
         
         let mut piece = Tetromino::new(TetrominoType::T);
         piece.position = (t_x, t_y);

@@ -1,0 +1,13 @@
+[package]
+name = "rust-tetris-ios"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The iOS entry point: a static library the Xcode project links (see ios/README.md)"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rust-tetris = { path = "../.." }
+macroquad = { version = "0.4", features = ["audio"] }

@@ -3,3 +3,4 @@
 pub mod handler;
 
 pub use handler::InputHandler;
+pub mod touch;
