@@ -27,7 +27,8 @@ jobs:
       IOS_BUNDLE_IDENTIFIER: ${{ vars.IOS_BUNDLE_IDENTIFIER || 'com.tjonestj3.rusttetris' }}
       FASTLANE_SKIP_UPDATE_CHECK: '1'
       FASTLANE_HIDE_CHANGELOG: '1'
-      IPHONEOS_DEPLOYMENT_TARGET: '16.0'
+      # No IPHONEOS_DEPLOYMENT_TARGET here: job-wide, it makes clang link the Mac-side Ruby gems
+      # (fastlane's native extensions) for iOS and they fail. build-rust.sh and project.yml set it.
 
     steps:
       # Fail in seconds, not after a build, when signing has not been set up yet.
