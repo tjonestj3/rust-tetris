@@ -3,3 +3,9 @@
 # Game save files (change frequently, don't track)
 tetris_save.json
 tetris_leaderboard.json
+
+# iOS build outputs (the Xcode project is generated from ios/project.yml by XcodeGen)
+/build
+ios/RustTetris.xcodeproj
+ios/Gemfile.lock
+ios/fastlane/report.xml

@@ -1,0 +1,36 @@
+# Quick checks on Linux, no Mac needed: the desktop game builds, the iOS code compiles for the
+# iPhone target (catches iOS-only errors before a long ios.yml run), and the touch gestures pass
+# their tests.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: System libraries (X11 / GL / ALSA for macroquad)
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxi-dev libgl1-mesa-dev libasound2-dev
+      - run: rustup target add aarch64-apple-ios
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux-
+      - name: Desktop build
+        run: cargo build
+      - name: iOS compile check
+        run: cargo check -p rust-tetris-ios --target aarch64-apple-ios
+      - name: Touch gesture tests
+        run: cargo test --lib input::touch
