@@ -31,3 +31,19 @@ env_logger = "0.10"
 
 # Date and time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+# iOS: asking UIKit for the safe area (the same objc crate miniquad uses)
+[target.'cfg(target_os = "ios")'.dependencies]
+objc = { package = "objc-rs", version = "0.2" }
+
+[workspace]
+members = [".", "ios/rust"]
+
+# miniquad 0.4.8 with one fix to its iOS touch handling (see vendor/miniquad/src/native/ios.rs,
+# on_touch): lifting one finger no longer releases every finger. Desktop code is untouched.
+[patch.crates-io]
+miniquad = { path = "vendor/miniquad" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

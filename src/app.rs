@@ -7,7 +7,7 @@ use crate::tetromino::{Tetromino, TetrominoType};
 use crate::audio::system::{AudioSystem, SoundType};
 use crate::{MenuSystem, MenuAction};
 use crate::graphics::view::Layout;
-use crate::input::touch::{self, key_down, key_pressed, Controls};
+use crate::input::touch::{self, key_down, key_pressed, Mode};
 
 /// Game application state
 #[derive(Debug, PartialEq)]
@@ -20,12 +20,32 @@ enum AppState {
     GameOver,
 }
 
+/// The help panel's lines when playing by touch (input::touch).
+const TOUCH_INSTRUCTIONS: [&str; 7] = [
+    "GESTURES:",
+    "Drag - Move",
+    "Drag down - Soft Drop",
+    "Tap - Rotate (2 fingers: back)",
+    "Flick down - Hard Drop",
+    "Flick up - Hold",
+    "II (top right) - Pause",
+];
+
 /// Window configuration for macroquad
 pub fn window_conf() -> Conf {
+    // `--window 390x844` tries a phone-sized window on desktop (with `--touch` for the controls).
+    let (window_width, window_height) = std::env::args()
+        .skip_while(|a| a != "--window")
+        .nth(1)
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.parse().ok()?, h.parse().ok()?))
+        })
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
     Conf {
         window_title: WINDOW_TITLE.to_owned(),
-        window_width: WINDOW_WIDTH,
-        window_height: WINDOW_HEIGHT,
+        window_width,
+        window_height,
         // The canvas scales to fit (graphics::view), so any window size works.
         window_resizable: true,
         // Sharp on iPhone; miniquad renders iOS at 2x with this on.
@@ -34,21 +54,18 @@ pub fn window_conf() -> Conf {
     }
 }
 
-/// Which on-screen buttons fit the current screen.
-fn controls_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) -> Controls {
+/// How touches are read on the current screen.
+fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) -> Mode {
     use crate::menu::MenuState;
     match app_state {
         AppState::Menu | AppState::GameOver => match menu.state {
-            MenuState::Main => Controls::MainMenu,
-            MenuState::Leaderboard => Controls::Leaderboard,
-            MenuState::Settings => Controls::Settings,
-            MenuState::NameEntry { .. } => Controls::NameEntry,
+            MenuState::NameEntry { .. } => Mode::NameEntry,
+            _ => Mode::Menu,
         },
         AppState::Playing => match game {
-            Some(g) if g.state == GameState::Paused => Controls::Paused,
-            Some(g) if g.ghost_block_placement_mode => Controls::GhostPlacement,
-            Some(_) => Controls::Game,
-            None => Controls::None,
+            Some(g) if g.state == GameState::Paused => Mode::Paused,
+            Some(g) if g.state == GameState::Playing => Mode::Game,
+            _ => Mode::None,
         },
     }
 }
@@ -91,10 +108,17 @@ pub async fn run() {
     // Application state management
     let mut app_state = AppState::Menu;
     let mut game: Option<Game> = None;
+    // `--play` skips the menu (handy with `--window`/`--touch` for checking the play layout).
+    if std::env::args().any(|a| a == "--play") {
+        game = Some(Game::new());
+        app_state = AppState::Playing;
+    }
     let save_path = Game::default_save_path();
     
     let mut frame_count = 0u64;
     let mut last_fps_time = get_time();
+    #[cfg(not(target_os = "ios"))]
+    let mut total_frames = 0u64;
     let mut fps = 0.0;
     let mut last_save_time = get_time();
     let auto_save_interval = 30.0; // Auto-save every 30 seconds
@@ -110,13 +134,13 @@ pub async fn run() {
     loop {
         let delta_time = get_frame_time();
 
-        // Fit the canvas to the screen (it may have rotated or unfolded) and read the touch
-        // controls before anything reads input.
-        let layout = Layout::compute(touch_mode);
+        // Fit the canvas to the screen (it may have rotated or unfolded) and read touches before
+        // anything reads input.
+        let layout = Layout::compute();
         if touch_mode {
-            let controls = controls_for(&app_state, game.as_ref(), &menu_system);
-            touch::begin_frame(&layout, controls);
-            touch::set_keyboard(controls == Controls::NameEntry);
+            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system);
+            touch::begin_frame(&layout, mode);
+            touch::set_keyboard(mode == Mode::NameEntry);
         }
         layout.set_canvas_camera();
         frame_count += 1;
@@ -269,6 +293,22 @@ pub async fn run() {
             touch::draw(&layout);
         }
 
+        // TETRIS_SCREENSHOT=out.png saves the 30th frame and quits (for checking layouts).
+        #[cfg(not(target_os = "ios"))]
+        {
+            total_frames += 1;
+            if total_frames == 30 {
+                if let Ok(path) = std::env::var("TETRIS_SCREENSHOT") {
+                    // Flush the touch controls' draw calls so they're in the shot.
+                    set_default_camera();
+                    draw_rectangle(0.0, 0.0, 0.0, 0.0, BLANK);
+                    set_default_camera();
+                    get_screen_data().export_png(&path);
+                    std::process::exit(0);
+                }
+            }
+        }
+
         next_frame().await;
     }
 }
@@ -372,8 +412,31 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
     game.update_left_movement(left_held);
     game.update_right_movement(right_held);
     
-    // Continuous soft drop (Down arrow + S key)
-    let soft_drop_held = key_down(KeyCode::Down) || key_down(KeyCode::S);
+    // Touch gestures (see input::touch): drag to move, drag down to soft drop, tap to rotate,
+    // flick down to hard drop, flick up to hold.
+    let gestures = touch::gestures();
+    for _ in 0..gestures.moves.abs() {
+        if game.move_piece(gestures.moves.signum(), 0) {
+            audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+        }
+    }
+    if gestures.rotate_cw && game.rotate_piece_clockwise() {
+        audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+    }
+    if gestures.rotate_ccw && game.rotate_piece_counterclockwise() {
+        audio_system.play_sound_with_volume(SoundType::UiClick, 0.8);
+    }
+    if gestures.hard_drop {
+        game.hard_drop();
+        audio_system.play_sound(SoundType::HardDrop);
+        return;
+    }
+    if gestures.hold && game.hold_piece() {
+        audio_system.play_sound(SoundType::HoldPiece);
+    }
+
+    // Continuous soft drop (Down arrow + S key, or dragging down)
+    let soft_drop_held = key_down(KeyCode::Down) || key_down(KeyCode::S) || gestures.soft_drop;
     game.update_soft_drop(soft_drop_held);
     
     // Rotation (Up/X/W for clockwise, Z for counterclockwise)
@@ -1956,7 +2019,7 @@ fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
         };
         
         draw_text(
-            "Press C",
+            if crate::platform::is_touch_device() { "Flick up" } else { "Press C" },
             hold_x + 5.0,
             hold_y + HOLD_SIZE / 2.0 - 5.0,
             TEXT_SIZE * 0.7,
@@ -2120,7 +2183,7 @@ fn draw_legacy_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
         };
         
         draw_text(
-            "Press C",
+            if crate::platform::is_touch_device() { "Flick up" } else { "Press C" },
             hold_x + 5.0,
             hold_y + HOLD_SIZE / 2.0 - 5.0,
             TEXT_SIZE * 0.7,
@@ -2562,16 +2625,20 @@ fn draw_enhanced_ui(game: &Game) {
     );
     
     // Instructions with background - compact retro style
-    let instructions = vec![
-        "CONTROLS:",
-        "← → A D - Move",
-        "↓ S - Soft Drop",
-        "↑ X W / Z - Rotate",
-        "SPACE - Hard Drop",
-        "C - Hold Piece",
-        "P - Pause / R - Reset",
-        "Ctrl+S - Save Game",
-    ];
+    let instructions = if crate::platform::is_touch_device() {
+        TOUCH_INSTRUCTIONS.to_vec()
+    } else {
+        vec![
+            "CONTROLS:",
+            "← → A D - Move",
+            "↓ S - Soft Drop",
+            "↑ X W / Z - Rotate",
+            "SPACE - Hard Drop",
+            "C - Hold Piece",
+            "P - Pause / R - Reset",
+            "Ctrl+S - Save Game",
+        ]
+    };
     
     let inst_x = 25.0; // Moderate padding from left edge
     let instruction_height = (instructions.len() as f32 * 18.0) + 35.0; // Moderate internal padding
@@ -2745,16 +2812,20 @@ fn draw_legacy_ui(game: &Game) {
     );
     
     // Instructions - same position as modern UI
-    let instructions = vec![
-        "CONTROLS:",
-        "← → A D - Move",
-        "↓ S - Soft Drop",
-        "↑ X W / Z - Rotate",
-        "SPACE - Hard Drop",
-        "C - Hold Piece",
-        "P - Pause / R - Reset",
-        "L - Modern Mode", // Changed from original
-    ];
+    let instructions = if crate::platform::is_touch_device() {
+        TOUCH_INSTRUCTIONS.to_vec()
+    } else {
+        vec![
+            "CONTROLS:",
+            "← → A D - Move",
+            "↓ S - Soft Drop",
+            "↑ X W / Z - Rotate",
+            "SPACE - Hard Drop",
+            "C - Hold Piece",
+            "P - Pause / R - Reset",
+            "L - Modern Mode", // Changed from original
+        ]
+    };
     
     let inst_x = 25.0; // Same as modern UI
     let instruction_height = (instructions.len() as f32 * 18.0) + 35.0;

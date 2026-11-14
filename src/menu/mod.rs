@@ -4,6 +4,7 @@ use macroquad::prelude::*;
 use crate::game::config::*;
 use crate::leaderboard::Leaderboard;
 use crate::Game;
+use crate::input::touch::{canvas_tap, key_down, key_pressed};
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
@@ -41,9 +42,7 @@ impl GameSettings {
     
     /// Get the default settings file path
     pub fn default_path() -> std::path::PathBuf {
-        std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("tetris_settings.json")
+        crate::platform::data_file("tetris_settings.json")
     }
     
     /// Save settings to file
@@ -130,7 +129,7 @@ impl MenuSystem {
         let num_options = menu_options.len();
         
         // Navigate menu
-        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+        if key_pressed(KeyCode::Up) || key_pressed(KeyCode::W) {
             self.selected_option = if self.selected_option == 0 {
                 num_options - 1
             } else {
@@ -138,12 +137,22 @@ impl MenuSystem {
             };
         }
         
-        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+        if key_pressed(KeyCode::Down) || key_pressed(KeyCode::S) {
             self.selected_option = (self.selected_option + 1) % num_options;
         }
         
+        // Tapping an option picks it (rows are 55 apart, text baseline at 320 + 55i)
+        let mut tapped = false;
+        if let Some(tap) = canvas_tap() {
+            let row = ((tap.y - (320.0 - 14.0)) / 55.0).round();
+            if row >= 0.0 && (row as usize) < num_options && (150.0..750.0).contains(&tap.x) {
+                self.selected_option = row as usize;
+                tapped = true;
+            }
+        }
+
         // Select option
-        if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+        if tapped || key_pressed(KeyCode::Enter) || key_pressed(KeyCode::Space) {
             match self.selected_option {
                 0 => MenuAction::NewGame,
                 1 => {
@@ -166,7 +175,7 @@ impl MenuSystem {
                 4 => MenuAction::Quit,
                 _ => MenuAction::None,
             }
-        } else if is_key_pressed(KeyCode::Escape) {
+        } else if key_pressed(KeyCode::Escape) {
             MenuAction::Quit
         } else {
             MenuAction::None
@@ -175,19 +184,20 @@ impl MenuSystem {
     
     /// Handle input for the leaderboard screen
     fn handle_leaderboard_input(&mut self) -> MenuAction {
-        if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Enter) {
+        if key_pressed(KeyCode::Escape) || key_pressed(KeyCode::Enter) || canvas_tap().is_some() {
             self.state = MenuState::Main;
             self.selected_option = 2; // Return to leaderboard option
+            return MenuAction::None;
         }
         
         // Scroll leaderboard if needed
-        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+        if key_pressed(KeyCode::Up) || key_pressed(KeyCode::W) {
             if self.leaderboard_scroll > 0 {
                 self.leaderboard_scroll -= 1;
             }
         }
         
-        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+        if key_pressed(KeyCode::Down) || key_pressed(KeyCode::S) {
             let max_scroll = self.leaderboard.entries.len().saturating_sub(7); // Show 7 entries at a time
             if self.leaderboard_scroll < max_scroll {
                 self.leaderboard_scroll += 1;
@@ -199,7 +209,22 @@ impl MenuSystem {
     
     /// Handle input for the settings screen
     fn handle_settings_input(&mut self) -> MenuAction {
-        if is_key_pressed(KeyCode::Escape) {
+        // Touch: tap sound (y 280) or volume (y 360) to change it; tap anywhere else to go back.
+        let mut tap_back = false;
+        if let Some(tap) = canvas_tap() {
+            if (220.0..320.0).contains(&tap.y) {
+                self.selected_option = 0;
+                self.settings.sound_enabled = !self.settings.sound_enabled;
+            } else if (320.0..420.0).contains(&tap.y) {
+                self.selected_option = 1;
+                let next = self.settings.volume + 0.1;
+                self.settings.volume = if next > 1.05 { 0.0 } else { next.min(1.0) };
+            } else {
+                tap_back = true;
+            }
+        }
+
+        if tap_back || key_pressed(KeyCode::Escape) {
             self.state = MenuState::Main;
             self.selected_option = 3; // Return to settings option
             // Save settings when leaving
@@ -209,16 +234,16 @@ impl MenuSystem {
         }
         
         // Navigate settings
-        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+        if key_pressed(KeyCode::Up) || key_pressed(KeyCode::W) {
             self.selected_option = if self.selected_option == 0 { 1 } else { 0 };
         }
         
-        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+        if key_pressed(KeyCode::Down) || key_pressed(KeyCode::S) {
             self.selected_option = (self.selected_option + 1) % 2;
         }
         
         // Modify settings
-        if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+        if key_pressed(KeyCode::Enter) || key_pressed(KeyCode::Space) {
             match self.selected_option {
                 0 => {
                     // Toggle sound
@@ -226,7 +251,7 @@ impl MenuSystem {
                 },
                 1 => {
                     // This could cycle through volume levels or we could add left/right for fine control
-                    if is_key_down(KeyCode::LeftShift) {
+                    if key_down(KeyCode::LeftShift) {
                         self.settings.volume = (self.settings.volume - 0.1).max(0.0);
                     } else {
                         self.settings.volume = (self.settings.volume + 0.1).min(1.0);
@@ -238,10 +263,10 @@ impl MenuSystem {
         
         // Volume adjustment with left/right arrows
         if self.selected_option == 1 {
-            if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
+            if key_pressed(KeyCode::Left) || key_pressed(KeyCode::A) {
                 self.settings.volume = (self.settings.volume - 0.1).max(0.0);
             }
-            if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
+            if key_pressed(KeyCode::Right) || key_pressed(KeyCode::D) {
                 self.settings.volume = (self.settings.volume + 0.1).min(1.0);
             }
         }
@@ -261,12 +286,12 @@ impl MenuSystem {
         }
         
         // Handle backspace
-        if is_key_pressed(KeyCode::Backspace) {
+        if key_pressed(KeyCode::Backspace) {
             self.name_input.pop();
         }
         
         // Handle enter (submit name)
-        if is_key_pressed(KeyCode::Enter) {
+        if key_pressed(KeyCode::Enter) {
             if let MenuState::NameEntry { score, level, lines_cleared, game_time } = self.state {
                 let name = if self.name_input.is_empty() {
                     "ANONYMOUS".to_string()
@@ -296,7 +321,7 @@ impl MenuSystem {
         }
         
         // Handle escape (cancel name entry)
-        if is_key_pressed(KeyCode::Escape) {
+        if key_pressed(KeyCode::Escape) {
             self.state = MenuState::Main;
             self.selected_option = 0;
             self.name_input.clear();
@@ -318,8 +343,10 @@ impl MenuSystem {
         options.extend_from_slice(&[
             "🏆 LEADERBOARD",
             "⚙️  SETTINGS",
-            "❌ QUIT",
         ]);
+        if crate::platform::CAN_QUIT {
+            options.push("❌ QUIT");
+        }
         
         options
     }

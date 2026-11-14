@@ -3,6 +3,7 @@
 //! A high-performance Tetris implementation focusing on smooth 60fps gameplay,
 //! clean architecture, and extensible design.
 
+pub mod app;
 pub mod audio;
 pub mod board;
 pub mod game;
@@ -10,6 +11,7 @@ pub mod graphics;
 pub mod input;
 pub mod leaderboard;
 pub mod menu;
+pub mod platform;
 pub mod rotation;
 pub mod scoring;
 pub mod tetromino;
