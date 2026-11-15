@@ -144,14 +144,11 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 let touch_id = ios_touch as u64;
                 let mut ios_pos: NSPoint = msg_send![ios_touch, locationInView: this];
 
-                if native_display().lock().unwrap().high_dpi {
-                    ios_pos.x *= 2.;
-                    ios_pos.y *= 2.;
-                } else {
-                    let content_scale_factor: f64 = msg_send![this, contentScaleFactor];
-                    ios_pos.x *= content_scale_factor;
-                    ios_pos.y *= content_scale_factor;
-                }
+                // rust-tetris patch: points to drawable pixels by the view's own scale (the
+                // screen's native scale with high_dpi), the same factor the size uses.
+                let content_scale_factor: f64 = msg_send![this, contentScaleFactor];
+                ios_pos.x *= content_scale_factor;
+                ios_pos.y *= content_scale_factor;
 
                 send_message(Message::Touch {
                     phase,
@@ -318,21 +315,34 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
 
         // rust-tetris patch: size from the view, which follows its window (rotation, an iPhone
         // Duo folding/unfolding, iPad split view), rather than from the whole screen.
-        let screen_rect: NSRect = unsafe { msg_send![payload.view, bounds] };
-        let high_dpi = native_display().lock().unwrap().high_dpi;
+        // rust-tetris patch: keep the view the size of its window. It's created at
+        // UIScreen.mainScreen's size, which can be a compatibility size (375x667 on an iPhone
+        // Duo at launch) until a rotation or fold makes UIKit lay it out again.
+        unsafe {
+            let window: ObjcId = msg_send![payload.view, window];
+            if !window.is_null() {
+                let wb: NSRect = msg_send![window, bounds];
+                let vf: NSRect = msg_send![payload.view, frame];
+                if wb.size.width > 0.0
+                    && wb.size.height > 0.0
+                    && (wb.size.width != vf.size.width
+                        || wb.size.height != vf.size.height
+                        || vf.origin.x != 0.0
+                        || vf.origin.y != 0.0)
+                {
+                    msg_send_![payload.view, setFrame: wb];
+                }
+            }
+        }
 
-        let (screen_width, screen_height) = if high_dpi {
-            (
-                screen_rect.size.width as i32 * 2,
-                screen_rect.size.height as i32 * 2,
-            )
-        } else {
-            let content_scale_factor: f64 = unsafe { msg_send![payload.view, contentScaleFactor] };
-            (
-                (screen_rect.size.width * content_scale_factor) as i32,
-                (screen_rect.size.height * content_scale_factor) as i32,
-            )
-        };
+        // The view's contentScaleFactor is the screen's native scale with high_dpi (see
+        // create_opengl_view), so this is the GL drawable's real size in pixels.
+        let screen_rect: NSRect = unsafe { msg_send![payload.view, bounds] };
+        let content_scale_factor: f64 = unsafe { msg_send![payload.view, contentScaleFactor] };
+        let (screen_width, screen_height) = (
+            (screen_rect.size.width * content_scale_factor).round() as i32,
+            (screen_rect.size.height * content_scale_factor).round() as i32,
+        );
 
         if native_display().lock().unwrap().screen_width != screen_width
             || native_display().lock().unwrap().screen_height != screen_height
@@ -418,8 +428,14 @@ unsafe fn create_opengl_view(screen_rect: NSRect, _sample_count: i32, high_dpi: 
     msg_send_![glk_view_obj, setEnableSetNeedsDisplay: YES];
     msg_send_![glk_view_obj, setUserInteractionEnabled: YES];
     msg_send_![glk_view_obj, setMultipleTouchEnabled: YES];
+    // rust-tetris patch: stretch with the window (UIViewAutoresizingFlexibleWidth | Height).
+    msg_send_![glk_view_obj, setAutoresizingMask: 18u64];
+    // rust-tetris patch: the screen's native scale (3x on most iPhones) rather than a fixed 2x,
+    // so drawing is pixel-sharp instead of upscaled.
     if high_dpi {
-        msg_send_![glk_view_obj, setContentScaleFactor: 2.0];
+        let main_screen: ObjcId = msg_send![class!(UIScreen), mainScreen];
+        let native_scale: f64 = msg_send![main_screen, nativeScale];
+        msg_send_![glk_view_obj, setContentScaleFactor: native_scale.max(1.0)];
     } else {
         msg_send_![glk_view_obj, setContentScaleFactor: 1.0];
     }
