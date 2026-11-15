@@ -14,7 +14,7 @@ without waiting for a Mac.
 
 ## Playing by touch
 
-All gestures, no on-screen buttons (`src/input/touch.rs`):
+All gestures (`src/input/touch.rs`); the only button is pause:
 
 | Gesture | Does |
 |---|---|
@@ -24,17 +24,38 @@ All gestures, no on-screen buttons (`src/input/touch.rs`):
 | Drag down (and keep it there) | Soft drop |
 | Flick down | Hard drop |
 | Flick up | Hold |
-| **II** (top right) | Pause (then Resume / Menu) |
+| **II** (beside the board) | Pause: the gestures, Resume, Menu |
 
 Menus: tap an option. Settings: tap Sound or Volume to change it, anywhere else to go back. A high
 score brings up the keyboard; Return saves it.
 
-The 900x750 game canvas is scaled to fit the screen inside the safe area (`src/graphics/view.rs`),
-re-fitted every frame, so any orientation works and the Duo can fold and unfold mid-game. Landscape
-gives the biggest board on a regular iPhone.
+The first game shows a short gesture hint over the board for ten seconds.
 
-Try it on desktop: `cargo run -- --touch` (the mouse is a finger), with `--window 390x844` for a
-phone-sized window and `--play` to skip the menu.
+### Layout
+
+Laid out from the real screen every frame (`src/graphics/view.rs`), so the phone can rotate and the
+Duo can fold and unfold mid-game:
+
+- **The board** gets the full height of the safe area, or the full width on a tall phone, at whole
+  pixels per cell. Next, Hold and the score go in compact panels in **one side column** (Duo
+  folded), **two side columns** (Duo open, landscape), or **a strip along the top** (tall phones),
+  whichever gives the bigger board. The panels and pause screen are `src/app/touch_view.rs`; the
+  board and its effects are the desktop drawing, through a camera that maps the canvas's board onto
+  the new board rect.
+- **Menus** fit just the part of the canvas they use (`MenuSystem::content_bounds`) to the screen,
+  so they come out large; the backdrop covers the whole screen. The leaderboard shows rank, name and
+  score, and name entry sits in the top half, above the keyboard.
+- **Text** is rasterized at its on-screen size (`src/graphics/text.rs`), so it's sharp at any scale.
+
+Desktop play is unchanged. Desktop flags for checking the touch screens:
+
+```sh
+cargo run -- --touch --window 458x667          # mouse = finger; Duo-folded-ish size
+TETRIS_INSETS=59,0,34,0 cargo run -- --touch   # fake safe-area insets (top,left,bottom,right)
+cargo run -- --touch --play [--paused]         # straight into a game (paused)
+cargo run -- --touch --menu settings           # or leaderboard, name
+TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
+```
 
 ## Apple setup (one time) ✅ done
 
@@ -76,12 +97,18 @@ Pick a team under Signing & Capabilities and run on a plugged-in iPhone. The sim
 
 ## How it fits together
 
-- **miniquad patch** (`vendor/miniquad`, used through `[patch.crates-io]` in `Cargo.toml`): three
-  fixes to miniquad 0.4.8's iOS code, each marked `rust-tetris patch`. Touches report only the
-  fingers that changed, with stable ids (upstream lifted every finger when any one lifted). The
-  window is made by a UIScene delegate (`QuadSceneDelegate`, named in `App/Info.plist`), which apps
-  built with the iOS 27 SDK need in order to launch. And the game is sized from its view rather than
-  the whole screen, so rotation and the Duo's fold resize it. Desktop code is untouched.
+- **miniquad patch** (`vendor/miniquad`, used through `[patch.crates-io]` in `Cargo.toml`): fixes
+  to miniquad 0.4.8's iOS code, each marked `rust-tetris patch`:
+  - Touches report only the fingers that changed, with stable ids (upstream lifted every finger
+    when any one lifted).
+  - The window is made by a UIScene delegate (`QuadSceneDelegate`, named in `App/Info.plist`),
+    which apps built with the iOS 27 SDK need in order to launch.
+  - The game is sized from its view, and the view is kept the size of its window: it's created at
+    `UIScreen.mainScreen`'s size, which on the Duo is a 375x667 compatibility size at launch (the
+    first build's menu came up small and off-centre until a fold).
+  - It renders at the screen's native scale (3x) instead of a fixed 2x, so it's pixel-sharp.
+
+  Desktop code is untouched.
 - **Save files** go in the app's Documents folder (`src/platform.rs`); desktop keeps them in the
   working directory.
 - **Music**: the build swaps the 48 kHz background music for a 24 kHz copy inside the app

@@ -33,4 +33,4 @@ jobs:
       - name: iOS compile check
         run: cargo check -p rust-tetris-ios --target aarch64-apple-ios
       - name: Touch gesture tests
-        run: cargo test --lib input::touch
+        run: cargo test --lib -- input::touch graphics::view
