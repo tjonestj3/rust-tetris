@@ -1,4 +1,5 @@
 use macroquad::prelude::*;
+use crate::graphics::text::{draw_text, measure_text};
 use crate::game::config::*;
 use crate::graphics::colors::*;
 use crate::board::Board;
@@ -6,8 +7,10 @@ use crate::game::{Game, GameState};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::audio::system::{AudioSystem, SoundType};
 use crate::{MenuSystem, MenuAction};
-use crate::graphics::view::Layout;
+use crate::graphics::view::{map_camera, Layout, FULL_CANVAS};
 use crate::input::touch::{self, key_down, key_pressed, Mode};
+
+mod touch_view;
 
 /// Game application state
 #[derive(Debug, PartialEq)]
@@ -19,17 +22,6 @@ enum AppState {
     /// Game over, checking for high score
     GameOver,
 }
-
-/// The help panel's lines when playing by touch (input::touch).
-const TOUCH_INSTRUCTIONS: [&str; 7] = [
-    "GESTURES:",
-    "Drag - Move",
-    "Drag down - Soft Drop",
-    "Tap - Rotate (2 fingers: back)",
-    "Flick down - Hard Drop",
-    "Flick up - Hold",
-    "II (top right) - Pause",
-];
 
 /// Window configuration for macroquad
 pub fn window_conf() -> Conf {
@@ -110,8 +102,23 @@ pub async fn run() {
     let mut game: Option<Game> = None;
     // `--play` skips the menu (handy with `--window`/`--touch` for checking the play layout).
     if std::env::args().any(|a| a == "--play") {
-        game = Some(Game::new());
+        let mut new_game = Game::new();
+        // `--paused` too, for checking the pause screen.
+        if std::env::args().any(|a| a == "--paused") {
+            new_game.toggle_pause();
+        }
+        game = Some(new_game);
         app_state = AppState::Playing;
+    }
+    // `--menu settings|leaderboard` opens that screen (for checking layouts).
+    match std::env::args().skip_while(|a| a != "--menu").nth(1).as_deref() {
+        Some("settings") => menu_system.state = crate::menu::MenuState::Settings,
+        Some("leaderboard") => menu_system.state = crate::menu::MenuState::Leaderboard,
+        Some("name") => {
+            menu_system.state = crate::menu::MenuState::NameEntry { score: 123456, level: 7, lines_cleared: 64, game_time: 431.0 };
+            app_state = AppState::GameOver;
+        }
+        _ => {}
     }
     let save_path = Game::default_save_path();
     
@@ -136,13 +143,21 @@ pub async fn run() {
 
         // Fit the canvas to the screen (it may have rotated or unfolded) and read touches before
         // anything reads input.
-        let layout = Layout::compute();
+        // On touch screens a menu shows just the part of the canvas it uses, as big as it fits.
+        let canvas_src = match app_state {
+            AppState::Menu | AppState::GameOver if touch_mode => menu_system.content_bounds(),
+            _ => FULL_CANVAS,
+        };
+        let layout = Layout::compute(canvas_src);
         if touch_mode {
             let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system);
             touch::begin_frame(&layout, mode);
             touch::set_keyboard(mode == Mode::NameEntry);
+            // Not clipped: the backdrop covers the whole screen, and menu effects may spill over.
+            map_camera(layout.canvas_src, layout.game);
+        } else {
+            layout.set_canvas_camera();
         }
-        layout.set_canvas_camera();
         frame_count += 1;
 
         // Calculate FPS
@@ -253,7 +268,25 @@ pub async fn run() {
                     }
                     
                     // Render game
-                    render_game(current_game, &background_texture, fps);
+                    if touch_mode {
+                        // The first game's gesture hint: fades in, stays ~10 s, fades out, and then
+                        // isn't shown again.
+                        let hint = if menu_system.settings.gesture_hint_seen {
+                            0.0
+                        } else {
+                            let t = current_game.game_time as f32;
+                            if t > 12.0 || current_game.state == GameState::GameOver {
+                                menu_system.settings.gesture_hint_seen = true;
+                                if let Err(e) = menu_system.settings.save_to_file(crate::menu::GameSettings::default_path()) {
+                                    log::warn!("Couldn't save settings: {}", e);
+                                }
+                            }
+                            (t * 2.0).min(1.0).min((12.0 - t).max(0.0))
+                        };
+                        touch_view::render(current_game, &background_texture, &layout, hint);
+                    } else {
+                        render_game(current_game, &background_texture, fps);
+                    }
                 } else {
                     // No game instance, return to menu
                     app_state = AppState::Menu;
@@ -277,8 +310,8 @@ pub async fn run() {
             },
         }
         
-        // Show FPS in debug mode
-        if SHOW_FPS {
+        // Show FPS in debug mode (desktop; on touch screens it would sit over the HUD)
+        if SHOW_FPS && !touch_mode {
             let fps_text = format!("FPS: {:.1}", fps);
             draw_text(
                 &fps_text,
@@ -2019,7 +2052,7 @@ fn draw_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
         };
         
         draw_text(
-            if crate::platform::is_touch_device() { "Flick up" } else { "Press C" },
+            "Press C",
             hold_x + 5.0,
             hold_y + HOLD_SIZE / 2.0 - 5.0,
             TEXT_SIZE * 0.7,
@@ -2183,7 +2216,7 @@ fn draw_legacy_hold_piece(held_piece: &Option<TetrominoType>, can_hold: bool) {
         };
         
         draw_text(
-            if crate::platform::is_touch_device() { "Flick up" } else { "Press C" },
+            "Press C",
             hold_x + 5.0,
             hold_y + HOLD_SIZE / 2.0 - 5.0,
             TEXT_SIZE * 0.7,
@@ -2625,20 +2658,16 @@ fn draw_enhanced_ui(game: &Game) {
     );
     
     // Instructions with background - compact retro style
-    let instructions = if crate::platform::is_touch_device() {
-        TOUCH_INSTRUCTIONS.to_vec()
-    } else {
-        vec![
-            "CONTROLS:",
-            "← → A D - Move",
-            "↓ S - Soft Drop",
-            "↑ X W / Z - Rotate",
-            "SPACE - Hard Drop",
-            "C - Hold Piece",
-            "P - Pause / R - Reset",
-            "Ctrl+S - Save Game",
-        ]
-    };
+    let instructions = vec![
+        "CONTROLS:",
+        "Left Right A D - Move",
+        "Down S - Soft Drop",
+        "Up X W / Z - Rotate",
+        "SPACE - Hard Drop",
+        "C - Hold Piece",
+        "P - Pause / R - Reset",
+        "Ctrl+S - Save Game",
+    ];
     
     let inst_x = 25.0; // Moderate padding from left edge
     let instruction_height = (instructions.len() as f32 * 18.0) + 35.0; // Moderate internal padding
@@ -2812,20 +2841,16 @@ fn draw_legacy_ui(game: &Game) {
     );
     
     // Instructions - same position as modern UI
-    let instructions = if crate::platform::is_touch_device() {
-        TOUCH_INSTRUCTIONS.to_vec()
-    } else {
-        vec![
-            "CONTROLS:",
-            "← → A D - Move",
-            "↓ S - Soft Drop",
-            "↑ X W / Z - Rotate",
-            "SPACE - Hard Drop",
-            "C - Hold Piece",
-            "P - Pause / R - Reset",
-            "L - Modern Mode", // Changed from original
-        ]
-    };
+    let instructions = vec![
+        "CONTROLS:",
+        "Left Right A D - Move",
+        "Down S - Soft Drop",
+        "Up X W / Z - Rotate",
+        "SPACE - Hard Drop",
+        "C - Hold Piece",
+        "P - Pause / R - Reset",
+        "L - Modern Mode", // Changed from original
+    ];
     
     let inst_x = 25.0; // Same as modern UI
     let instruction_height = (instructions.len() as f32 * 18.0) + 35.0;

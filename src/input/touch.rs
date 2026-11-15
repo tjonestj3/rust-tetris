@@ -18,8 +18,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use macroquad::prelude::*;
+use crate::graphics::text::{draw_text, measure_text};
 
-use crate::game::config::CELL_SIZE;
 use crate::graphics::view::Layout;
 
 /// What the screen is showing, which decides how touches are read.
@@ -173,7 +173,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
 
 /// Draw the pause icon / pause buttons, in screen pixels, over everything.
 pub fn draw(layout: &Layout) {
-    set_default_camera();
+    crate::graphics::view::screen_camera();
     STATE.with(|s| {
         for b in &s.borrow().buttons {
             draw_button(b, layout.unit);
@@ -216,7 +216,7 @@ fn read_fingers() -> Vec<Finger> {
 fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Finger], now: f64) {
     let u = layout.unit;
     // One sideways step: a board cell as drawn, kept to a size a thumb can manage.
-    let step = (CELL_SIZE * layout.scale).clamp(14.0 * u, 30.0 * u);
+    let step = layout.play.cell.clamp(14.0 * u, 30.0 * u);
     let tap_slop = 12.0 * u;
 
     // A new gesture starts with a new finger when none is going.
@@ -307,16 +307,14 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
     let u = layout.unit;
     match mode {
         Mode::Game => {
-            // Top right of the safe area, just outside the canvas when there's room.
-            let size = 40.0 * u;
-            let margin = 8.0 * u;
-            let rect = Rect::new(layout.safe.x + layout.safe.w - size - margin, layout.safe.y + margin, size, size);
-            vec![Button { rect, key: KeyCode::P, label: "II" }]
+            // Its place in the HUD (graphics::view::PlayLayout).
+            vec![Button { rect: layout.play.pause, key: KeyCode::P, label: "II" }]
         }
         Mode::Paused => {
-            let (w, h, gap) = (180.0 * u, 52.0 * u, 16.0 * u);
-            let cx = layout.game.x + layout.game.w / 2.0;
-            let cy = layout.game.y + layout.game.h * 0.62;
+            // Below the pause screen's text (app::touch_view::draw_pause).
+            let (w, h, gap) = ((220.0 * u).min(layout.safe.w * 0.7), 52.0 * u, 14.0 * u);
+            let cx = layout.safe.center().x;
+            let cy = layout.safe.y + layout.safe.h * 0.8;
             vec![
                 Button { rect: Rect::new(cx - w / 2.0, cy - h - gap / 2.0, w, h), key: KeyCode::P, label: "RESUME" },
                 Button { rect: Rect::new(cx - w / 2.0, cy + gap / 2.0, w, h), key: KeyCode::Escape, label: "MENU" },
@@ -352,10 +350,10 @@ fn draw_button(b: &Button, u: f32) {
 mod tests {
     use super::*;
 
-    /// Canvas at 1:1, so a sideways step is 30 px (the 32 px cell, capped at 30).
+    /// A 900x750 screen: a 36 px cell, so a sideways step is 30 px (the cap).
     fn layout() -> Layout {
         let r = Rect::new(0.0, 0.0, 900.0, 750.0);
-        Layout { game: r, scale: 1.0, unit: 1.0, safe: r }
+        Layout::for_screen(r, r, 1.0, crate::graphics::view::FULL_CANVAS)
     }
 
     /// Feed frames of (time, fingers as (id, x, y, new, ended)); return each frame's gestures.

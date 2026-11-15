@@ -1,6 +1,7 @@
 //! Enhanced start menu system for the Tetris game
 
 use macroquad::prelude::*;
+use crate::graphics::text::{draw_text, measure_text};
 use crate::game::config::*;
 use crate::leaderboard::Leaderboard;
 use crate::Game;
@@ -22,6 +23,11 @@ pub enum MenuState {
     NameEntry { score: u32, level: u32, lines_cleared: u32, game_time: f64 },
 }
 
+/// The touch leaderboard's table: left edge, width and rows, in canvas units.
+const TOUCH_TABLE_X: f32 = 250.0;
+const TOUCH_TABLE_W: f32 = 400.0;
+const TOUCH_TABLE_ROWS: usize = 8;
+
 /// Game settings that persist across sessions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameSettings {
@@ -29,6 +35,9 @@ pub struct GameSettings {
     pub sound_enabled: bool,
     /// Master volume (0.0 to 1.0)
     pub volume: f32,
+    /// The touch gesture hint has been shown (it's shown over the first game only).
+    #[serde(default)]
+    pub gesture_hint_seen: bool,
 }
 
 impl GameSettings {
@@ -37,6 +46,7 @@ impl GameSettings {
         Self {
             sound_enabled: true,
             volume: 0.7,
+            gesture_hint_seen: false,
         }
     }
     
@@ -332,20 +342,20 @@ impl MenuSystem {
     
     /// Get the main menu options based on current state
     fn get_main_menu_options(&self) -> Vec<&str> {
-        let mut options = vec!["🎮 NEW GAME"];
+        let mut options = vec!["NEW GAME"];
         
         if Game::save_file_exists(&Game::default_save_path()) {
-            options.push("💾 CONTINUE");
+            options.push("CONTINUE");
         } else {
-            options.push("💾 CONTINUE (No Save)");
+            options.push("CONTINUE (NO SAVE)");
         }
         
         options.extend_from_slice(&[
-            "🏆 LEADERBOARD",
-            "⚙️  SETTINGS",
+            "LEADERBOARD",
+            "SETTINGS",
         ]);
         if crate::platform::CAN_QUIT {
-            options.push("❌ QUIT");
+            options.push("QUIT");
         }
         
         options
@@ -376,19 +386,7 @@ impl MenuSystem {
     
     /// Render the main menu
     fn render_main_menu(&self, background_texture: &Texture2D) {
-        // Clear screen and draw background
-        clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
-        
-        draw_texture(background_texture, 0.0, 0.0, WHITE);
-        
-        // Draw semi-transparent overlay
-        draw_rectangle(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32,
-            Color::new(0.0, 0.0, 0.0, 0.4),
-        );
+        self.draw_background(background_texture, 0.4);
         
         // Draw animated title
         self.draw_animated_title();
@@ -448,21 +446,11 @@ impl MenuSystem {
     
     /// Render the leaderboard screen
     fn render_leaderboard(&self, background_texture: &Texture2D) {
-        // Clear screen and draw background
-        clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
-        draw_texture(background_texture, 0.0, 0.0, WHITE);
-        
-        // Draw semi-transparent overlay
-        draw_rectangle(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32,
-            Color::new(0.0, 0.0, 0.0, 0.6),
-        );
+        let touch = crate::platform::is_touch_device();
+        self.draw_background(background_texture, 0.6);
         
         // Draw title
-        let title = "🏆 HIGH SCORES 🏆";
+        let title = "HIGH SCORES";
         let title_size = 48.0;
         let title_width = measure_text(title, None, title_size as u16, 1.0).width;
         let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
@@ -483,9 +471,35 @@ impl MenuSystem {
             let text_y = WINDOW_HEIGHT as f32 / 2.0;
             
             self.draw_text_with_outline(no_scores, text_x, text_y, entry_size, Color::new(0.8, 0.8, 0.8, 0.8));
+        } else if touch {
+            // Touch screens are narrow: rank, name and score, bigger.
+            let (rank_x, name_x, score_right) = (TOUCH_TABLE_X, TOUCH_TABLE_X + 60.0, TOUCH_TABLE_X + TOUCH_TABLE_W);
+            let header = Color::new(0.6, 0.8, 1.0, 1.0);
+            self.draw_text_with_outline("#", rank_x, entry_y_start - 20.0, 18.0, header);
+            self.draw_text_with_outline("NAME", name_x, entry_y_start - 20.0, 18.0, header);
+            let sw = measure_text("SCORE", None, 18, 1.0).width;
+            self.draw_text_with_outline("SCORE", score_right - sw, entry_y_start - 20.0, 18.0, header);
+            let size = 28.0;
+            for (row, entry) in self.leaderboard.entries.iter().take(TOUCH_TABLE_ROWS).enumerate() {
+                let y = entry_y_start + 22.0 + row as f32 * entry_spacing;
+                let color = match row {
+                    0 => Color::new(1.0, 0.85, 0.0, 1.0),
+                    1 => Color::new(0.75, 0.75, 0.75, 1.0),
+                    2 => Color::new(0.8, 0.5, 0.2, 1.0),
+                    _ => Color::new(0.8, 0.8, 0.8, 0.9),
+                };
+                let mut name = entry.name.clone();
+                name.truncate(10);
+                let score = entry.score.to_string();
+                self.draw_text_with_outline(&(row + 1).to_string(), rank_x, y, size, color);
+                self.draw_text_with_outline(&name, name_x, y, size, color);
+                let w = measure_text(&score, None, size as u16, 1.0).width;
+                self.draw_text_with_outline(&score, score_right - w, y, size, color);
+            }
         } else {
             // Draw header with fixed column positions
-            let base_x = 80.0;
+            // The table (about 520 wide) centred on the canvas.
+            let base_x = (WINDOW_WIDTH as f32 - 520.0) / 2.0;
             let header_y = entry_y_start - 20.0;
             let rank_x = base_x;
             let name_x = base_x + 50.0;
@@ -532,42 +546,32 @@ impl MenuSystem {
             
             // Draw scroll indicators if needed
             if self.leaderboard_scroll > 0 {
-                let up_arrow = "▲ More above";
-                self.draw_text_with_outline(up_arrow, 80.0, entry_y_start - 50.0, 16.0, Color::new(0.8, 0.8, 0.8, 0.7));
+                let up_arrow = "- more above -";
+                self.draw_text_with_outline(up_arrow, base_x, entry_y_start - 50.0, 16.0, Color::new(0.8, 0.8, 0.8, 0.7));
             }
             
             if end_idx < self.leaderboard.entries.len() {
-                let down_arrow = "▼ More below";
-                self.draw_text_with_outline(down_arrow, 80.0, entry_y_start + (visible_entries as f32 * entry_spacing) + 20.0, 16.0, Color::new(0.8, 0.8, 0.8, 0.7));
+                let down_arrow = "- more below -";
+                self.draw_text_with_outline(down_arrow, base_x, entry_y_start + (visible_entries as f32 * entry_spacing) + 20.0, 16.0, Color::new(0.8, 0.8, 0.8, 0.7));
             }
         }
         
         // Draw instructions
-        let instruction = "Press ESCAPE or ENTER to return to main menu";
+        let instruction = if touch { "Tap anywhere to go back" } else { "Press ESCAPE or ENTER to return to main menu" };
         let inst_width = measure_text(instruction, None, 20, 1.0).width;
         let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
-        let inst_y = WINDOW_HEIGHT as f32 - 50.0;
+        let inst_y = if touch { self.touch_leaderboard_bottom() - 25.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
         
         self.draw_text_with_outline(instruction, inst_x, inst_y, 20.0, Color::new(0.7, 0.7, 0.7, 0.8));
     }
     
     /// Render the settings screen
     fn render_settings(&self, background_texture: &Texture2D) {
-        // Clear screen and draw background
-        clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
-        draw_texture(background_texture, 0.0, 0.0, WHITE);
-        
-        // Draw semi-transparent overlay
-        draw_rectangle(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32,
-            Color::new(0.0, 0.0, 0.0, 0.6),
-        );
+        let touch = crate::platform::is_touch_device();
+        self.draw_background(background_texture, 0.6);
         
         // Draw title
-        let title = "⚙️ SETTINGS ⚙️";
+        let title = "SETTINGS";
         let title_size = 48.0;
         let title_width = measure_text(title, None, title_size as u16, 1.0).width;
         let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
@@ -581,7 +585,7 @@ impl MenuSystem {
         let option_spacing = 80.0;
         
         // Sound setting
-        let sound_text = format!("🔊 SOUND: {}", if self.settings.sound_enabled { "ON" } else { "OFF" });
+        let sound_text = format!("SOUND: {}", if self.settings.sound_enabled { "ON" } else { "OFF" });
         let sound_x = (WINDOW_WIDTH as f32 - measure_text(&sound_text, None, option_size as u16, 1.0).width) / 2.0;
         let sound_y = option_y_start;
         let sound_selected = self.selected_option == 0;
@@ -611,7 +615,7 @@ impl MenuSystem {
         self.draw_text_with_outline(&sound_text, sound_x, sound_y, option_size, sound_color);
         
         // Volume setting
-        let volume_text = format!("🎵 VOLUME: {:.0}%", self.settings.volume * 100.0);
+        let volume_text = format!("VOLUME: {:.0}%", self.settings.volume * 100.0);
         let volume_x = (WINDOW_WIDTH as f32 - measure_text(&volume_text, None, option_size as u16, 1.0).width) / 2.0;
         let volume_y = option_y_start + option_spacing;
         let volume_selected = self.selected_option == 1;
@@ -636,8 +640,8 @@ impl MenuSystem {
         
         self.draw_text_with_outline(&volume_text, volume_x, volume_y, option_size, volume_color);
         
-        // Draw volume bar
-        if volume_selected {
+        // Draw volume bar (always on touch screens, where nothing is "selected")
+        if volume_selected || touch {
             let bar_width = 300.0;
             let bar_height = 10.0;
             let bar_x = (WINDOW_WIDTH as f32 - bar_width) / 2.0;
@@ -651,7 +655,7 @@ impl MenuSystem {
             draw_rectangle(bar_x, bar_y, fill_width, bar_height, Color::new(0.4, 0.8, 1.0, 0.9));
             
             // Instructions
-            let instruction = "Use LEFT/RIGHT arrows to adjust volume";
+            let instruction = if touch { "Tap sound or volume to change them" } else { "Use LEFT/RIGHT arrows to adjust volume" };
             let inst_width = measure_text(instruction, None, 18, 1.0).width;
             let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
             let inst_y = bar_y + 40.0;
@@ -660,31 +664,22 @@ impl MenuSystem {
         }
         
         // Draw general instructions
-        let instruction = "Press ESCAPE to return to main menu";
+        let instruction = if touch { "Tap anywhere else to go back" } else { "Press ESCAPE to return to main menu" };
         let inst_width = measure_text(instruction, None, 20, 1.0).width;
         let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
-        let inst_y = WINDOW_HEIGHT as f32 - 50.0;
+        // Touch: right under the options (the screen is fitted around them; see content_bounds).
+        let inst_y = if touch { 480.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
         
         self.draw_text_with_outline(instruction, inst_x, inst_y, 20.0, Color::new(0.7, 0.7, 0.7, 0.8));
     }
     
     /// Render the name entry screen
     fn render_name_entry(&self, background_texture: &Texture2D, score: u32, level: u32, lines_cleared: u32, game_time: f64) {
-        // Clear screen and draw background
-        clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
-        draw_texture(background_texture, 0.0, 0.0, WHITE);
-        
-        // Draw semi-transparent overlay
-        draw_rectangle(
-            0.0,
-            0.0,
-            WINDOW_WIDTH as f32,
-            WINDOW_HEIGHT as f32,
-            Color::new(0.0, 0.0, 0.0, 0.7),
-        );
+        let touch = crate::platform::is_touch_device();
+        self.draw_background(background_texture, 0.7);
         
         // Draw congratulations title
-        let title = "🎉 NEW HIGH SCORE! 🎉";
+        let title = "NEW HIGH SCORE!";
         let title_size = 56.0;
         let title_width = measure_text(title, None, title_size as u16, 1.0).width;
         let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
@@ -705,7 +700,7 @@ impl MenuSystem {
         let minutes = (game_time / 60.0) as u32;
         let seconds = (game_time % 60.0) as u32;
         let details = format!(
-            "Score: {}  •  Level: {}  •  Lines: {}  •  Time: {}:{:02}",
+            "Score: {}   Level: {}   Lines: {}   Time: {}:{:02}",
             score,
             level,
             lines_cleared,
@@ -782,12 +777,12 @@ impl MenuSystem {
         self.draw_text_with_outline(&input_text, input_x, input_y, input_size, input_color);
         
         // Draw instructions
-        let instruction = "Press ENTER to confirm • ESCAPE to cancel";
-        let inst_width = measure_text(instruction, None, 20, 1.0).width;
-        let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
-        let inst_y = WINDOW_HEIGHT as f32 - 80.0;
-        
-        self.draw_text_with_outline(instruction, inst_x, inst_y, 20.0, Color::new(0.7, 0.7, 0.7, 0.8));
+        let instruction = if touch { "Type your name, then tap Return" } else { "Press ENTER to confirm - ESCAPE to cancel" };
+        let inst_y = if touch { 500.0 } else { WINDOW_HEIGHT as f32 - 80.0 };
+        let inst_size = if touch { 24.0 } else { 20.0 };
+        let inst_x = (WINDOW_WIDTH as f32 - measure_text(instruction, None, inst_size as u16, 1.0).width) / 2.0;
+
+        self.draw_text_with_outline(instruction, inst_x, inst_y, inst_size, Color::new(0.7, 0.7, 0.7, 0.8));
         
         // Show predicted rank
         if let Some(rank) = self.leaderboard.get_rank_for_score(score) {
@@ -800,6 +795,46 @@ impl MenuSystem {
         }
     }
     
+    /// The screen's background: the game's backdrop, dimmed by `dim`. On touch screens it covers
+    /// the whole screen (graphics::view::draw_cover_background); on desktop, the canvas.
+    fn draw_background(&self, background_texture: &Texture2D, dim: f32) {
+        if crate::platform::is_touch_device() {
+            crate::graphics::view::draw_cover_background(background_texture, dim);
+            return;
+        }
+        clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
+        draw_texture(background_texture, 0.0, 0.0, WHITE);
+        draw_rectangle(0.0, 0.0, WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32, Color::new(0.0, 0.0, 0.0, dim));
+    }
+
+    /// The part of the 900x750 canvas the current screen draws in, in canvas units. On touch
+    /// screens just this is fitted to the screen, so menus come out as big as they can.
+    pub fn content_bounds(&self) -> Rect {
+        match self.state {
+            MenuState::Main => {
+                // The title (from y 70) down to just under the last option (see render_main_menu).
+                let last = 320.0 + (self.get_main_menu_options().len() as f32 - 1.0) * 55.0;
+                Rect::new(230.0, 70.0, 440.0, last + 45.0 - 70.0)
+            }
+            // Touch settings are compact: the "go back" line sits under the volume bar (y 480).
+            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 410.0),
+            MenuState::Leaderboard => Rect::new(
+                TOUCH_TABLE_X - 20.0,
+                50.0,
+                TOUCH_TABLE_W + 40.0,
+                self.touch_leaderboard_bottom() - 50.0,
+            ),
+            // Everything sits in the top part: the keyboard covers the bottom half.
+            MenuState::NameEntry { .. } => Rect::new(140.0, 60.0, 620.0, 800.0),
+        }
+    }
+
+    /// Where the touch leaderboard ends (just under its "go back" line), in canvas units.
+    fn touch_leaderboard_bottom(&self) -> f32 {
+        let rows = self.leaderboard.entries.len().min(TOUCH_TABLE_ROWS);
+        if rows == 0 { 460.0 } else { 180.0 + 22.0 + (rows as f32 - 1.0) * 45.0 + 85.0 }
+    }
+
     /// Draw animated title for main menu
     fn draw_animated_title(&self) {
         let title = "RUST TETRIS";

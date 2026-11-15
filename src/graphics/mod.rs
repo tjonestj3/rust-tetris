@@ -3,6 +3,7 @@
 pub mod colors;
 pub mod utils;
 
+pub mod text;
 pub mod view;
 
 pub use colors::*;
