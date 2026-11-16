@@ -77,3 +77,72 @@ pub fn ios_content_scale() -> f32 {
         if scale >= 1.0 { scale as f32 } else { 2.0 }
     }
 }
+
+/// The screen's measurements, two short lines: what the game draws at and what UIKit reports
+/// (screen, window, view, drawable, scale, safe area). Shown in small print on touch settings.
+pub fn display_info() -> String {
+    use macroquad::prelude::{screen_height, screen_width};
+    let game = format!("game {}x{}", screen_width().round(), screen_height().round());
+    #[cfg(target_os = "ios")]
+    {
+        return format!("{game}  {}", ios_display_info());
+    }
+    #[allow(unreachable_code)]
+    game
+}
+
+#[cfg(target_os = "ios")]
+fn ios_display_info() -> String {
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Rect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    }
+    let fmt = |r: Rect| {
+        if r.x == 0.0 && r.y == 0.0 {
+            format!("{}x{}", r.w, r.h)
+        } else {
+            format!("{}x{}@{},{}", r.w, r.h, r.x, r.y)
+        }
+    };
+
+    unsafe {
+        let screen: *mut Object = msg_send![class!(UIScreen), mainScreen];
+        let sb: Rect = msg_send![screen, bounds];
+        let nb: Rect = msg_send![screen, nativeBounds];
+        let scale: f64 = msg_send![screen, scale];
+        let native: f64 = msg_send![screen, nativeScale];
+        let mut out = format!("screen {} native {} x{scale}/{native}", fmt(sb), fmt(nb));
+
+        let view = macroquad::miniquad::window::apple_view() as *mut Object;
+        if view.is_null() {
+            return out;
+        }
+        let window: *mut Object = msg_send![view, window];
+        if !window.is_null() {
+            let wf: Rect = msg_send![window, frame];
+            out += &format!("\nwin {}", fmt(wf));
+            let scene: *mut Object = msg_send![window, windowScene];
+            if !scene.is_null() {
+                let space: *mut Object = msg_send![scene, coordinateSpace];
+                let b: Rect = msg_send![space, bounds];
+                out += &format!(" scene {}", fmt(b));
+            }
+        } else {
+            out += "\nno window";
+        }
+        let vf: Rect = msg_send![view, frame];
+        let csf: f64 = msg_send![view, contentScaleFactor];
+        let dw: isize = msg_send![view, drawableWidth];
+        let dh: isize = msg_send![view, drawableHeight];
+        let (t, l, b, r) = ios_safe_area_insets().unwrap_or_default();
+        out += &format!("\nview {} x{csf} gl {dw}x{dh} safe {t},{l},{b},{r}", fmt(vf));
+        out
+    }
+}

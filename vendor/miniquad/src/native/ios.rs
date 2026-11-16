@@ -315,12 +315,28 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
 
         // rust-tetris patch: size from the view, which follows its window (rotation, an iPhone
         // Duo folding/unfolding, iPad split view), rather than from the whole screen.
-        // rust-tetris patch: keep the view the size of its window. It's created at
-        // UIScreen.mainScreen's size, which can be a compatibility size (375x667 on an iPhone
-        // Duo at launch) until a rotation or fold makes UIKit lay it out again.
+        // rust-tetris patch: keep the window the size of its scene and the view the size of its
+        // window. The view is created at UIScreen.mainScreen's size, which can be a compatibility
+        // size (375x667 on an iPhone Duo at launch) until a rotation or fold makes UIKit lay
+        // things out again.
         unsafe {
             let window: ObjcId = msg_send![payload.view, window];
             if !window.is_null() {
+                let scene: ObjcId = msg_send![window, windowScene];
+                if !scene.is_null() {
+                    let space: ObjcId = msg_send![scene, coordinateSpace];
+                    let sb: NSRect = msg_send![space, bounds];
+                    let wf: NSRect = msg_send![window, frame];
+                    if sb.size.width > 0.0
+                        && sb.size.height > 0.0
+                        && (sb.size.width != wf.size.width
+                            || sb.size.height != wf.size.height
+                            || wf.origin.x != 0.0
+                            || wf.origin.y != 0.0)
+                    {
+                        msg_send_![window, setFrame: sb];
+                    }
+                }
                 let wb: NSRect = msg_send![window, bounds];
                 let vf: NSRect = msg_send![payload.view, frame];
                 if wb.size.width > 0.0
@@ -336,13 +352,27 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
         }
 
         // The view's contentScaleFactor is the screen's native scale with high_dpi (see
-        // create_opengl_view), so this is the GL drawable's real size in pixels.
+        // create_opengl_view), so this is the GL drawable's size in pixels...
         let screen_rect: NSRect = unsafe { msg_send![payload.view, bounds] };
         let content_scale_factor: f64 = unsafe { msg_send![payload.view, contentScaleFactor] };
-        let (screen_width, screen_height) = (
+        let (mut screen_width, mut screen_height) = (
             (screen_rect.size.width * content_scale_factor).round() as i32,
             (screen_rect.size.height * content_scale_factor).round() as i32,
         );
+        // ...except right after a resize, when GLKView hasn't remade its drawable yet. Draw at the
+        // drawable's real size then, so the picture fills it (GLKView shows it stretched to the
+        // view for that frame) rather than landing in one corner.
+        unsafe {
+            let responds: BOOL = msg_send![payload.view, respondsToSelector: sel!(drawableWidth)];
+            if responds == YES {
+                let dw: isize = msg_send![payload.view, drawableWidth];
+                let dh: isize = msg_send![payload.view, drawableHeight];
+                if dw > 0 && dh > 0 {
+                    screen_width = dw as i32;
+                    screen_height = dh as i32;
+                }
+            }
+        }
 
         if native_display().lock().unwrap().screen_width != screen_width
             || native_display().lock().unwrap().screen_height != screen_height

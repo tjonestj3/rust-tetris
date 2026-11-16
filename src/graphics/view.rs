@@ -176,8 +176,8 @@ impl PlayLayout {
                 let lx = board.x - m - col_w;
                 let rx = board.right() + m;
                 let hold = Rect::new(lx, y, col_w, ph);
-                // As tall as its content (score, level / lines, time).
-                let stats = Rect::new(lx, hold.bottom() + m, col_w, (cell * 6.8).min(board.bottom() - (hold.bottom() + m)));
+                // Down to the bottom of the board: score, level / lines, and time at the bottom.
+                let stats = Rect::new(lx, hold.bottom() + m, col_w, board.bottom() - (hold.bottom() + m));
                 let next = Rect::new(rx, y, col_w, ph);
                 let pause = Rect::new(rx + col_w - pause_size, board.bottom() - pause_size, pause_size, pause_size);
                 Self { style, board, cell, next, hold, stats, pause, gap: m }
