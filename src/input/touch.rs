@@ -4,9 +4,10 @@
 //! - **tap**: rotate clockwise; **two-finger tap**: rotate counter-clockwise
 //! - **drag sideways**: move the piece, one cell per step, following the finger
 //! - **drag down** (and keep the finger there): soft drop
-//! - **flick down**: hard drop; **flick up**: hold
+//! - **flick down**: hard drop; **flick up**, or **tap the HOLD panel**: hold
 //!
-//! The one thing drawn is a small pause icon in the corner (and Resume / Menu while paused).
+//! The one thing drawn is a small pause icon in the corner (and Resume / Menu while paused); the
+//! HOLD panel (drawn by app::touch_view) is a button too.
 //! Menus are tapped directly ([`canvas_tap`]).
 //!
 //! Once a frame, before any input is read, the app calls [`begin_frame`]; the game reads
@@ -77,6 +78,12 @@ struct Gesture {
 }
 
 /// A button drawn on screen (the pause icon, Resume / Menu).
+/// How far outside a button a tap still counts, in points.
+const BUTTON_SLACK: f32 = 10.0;
+
+/// The label of the HOLD panel's button: not drawn here (the panel is the button).
+const HOLD_PANEL: &str = "";
+
 #[derive(Debug, Clone, Copy)]
 struct Button {
     rect: Rect,
@@ -150,7 +157,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
         // A new finger on a button presses its key, and is otherwise ignored.
         let mut fresh: Vec<Finger> = Vec::new();
         for f in fingers.iter().filter(|f| f.new) {
-            let slack = 10.0 * layout.unit;
+            let slack = BUTTON_SLACK * layout.unit;
             match s.buttons.iter().find(|b| grow(b.rect, slack).contains(f.pos)) {
                 Some(b) => {
                     let key = b.key;
@@ -296,19 +303,39 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
         } else if g.max_fingers < 2 && vertical && v.y > 900.0 && pos.y - g.start.y > step {
             s.gestures.hard_drop = true;
             s.gestures.soft_drop = false;
-        } else if g.max_fingers < 2 && vertical && v.y < -700.0 && g.start.y - pos.y > 1.5 * step {
+        } else if g.max_fingers < 2 && is_flick_up(g, pos, v, now, step) {
             s.gestures.hold = true;
         }
         s.gesture = None;
     }
 }
 
+/// A flick up: well up from where it started, mostly straight, and either still going up fast
+/// when lifted or done quickly (a flick that slows before the finger lifts still counts).
+fn is_flick_up(g: &Gesture, pos: Vec2, v: Vec2, now: f64, step: f32) -> bool {
+    let up = g.start.y - pos.y;
+    let straight = up > 1.5 * (pos.x - g.start.x).abs();
+    let fast_at_lift = v.y < -400.0 && v.y.abs() > 1.5 * v.x.abs();
+    let quick = now - g.start_time < 0.5;
+    up > 1.5 * step && straight && (fast_at_lift || quick)
+}
+
 fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
     let u = layout.unit;
     match mode {
         Mode::Game => {
-            // Its place in the HUD (graphics::view::PlayLayout).
-            vec![Button { rect: layout.play.pause, key: KeyCode::P, label: "II" }]
+            // Their places in the HUD (graphics::view::PlayLayout). The HOLD panel is drawn by
+            // app::touch_view; shrunk by the slack taps get, so a tap just off it still isn't one.
+            let slack = BUTTON_SLACK * u;
+            let h = layout.play.hold;
+            vec![
+                Button { rect: layout.play.pause, key: KeyCode::P, label: "II" },
+                Button {
+                    rect: Rect::new(h.x + slack, h.y + slack, (h.w - 2.0 * slack).max(0.0), (h.h - 2.0 * slack).max(0.0)),
+                    key: KeyCode::C,
+                    label: HOLD_PANEL,
+                },
+            ]
         }
         Mode::Paused => {
             // Below the pause screen's text (app::touch_view::draw_pause).
@@ -329,6 +356,9 @@ fn grow(r: Rect, by: f32) -> Rect {
 }
 
 fn draw_button(b: &Button, u: f32) {
+    if b.label == HOLD_PANEL {
+        return;
+    }
     use crate::graphics::style::{self, CYAN, GOLD, INK, PINK};
     let r = b.rect;
     let ink = INK;
@@ -441,6 +471,31 @@ mod tests {
         ]));
         assert!(g.hard_drop);
         assert!(!g.hold && !g.rotate_cw && g.moves == 0);
+    }
+
+    #[test]
+    fn slow_ending_flick_up_still_holds() {
+        // Up 140 px in a quarter second, nearly stopped when lifted.
+        let g = total(&run(&[
+            (0.0, vec![(1, 100.0, 400.0, true, false)]),
+            (0.08, vec![(1, 102.0, 320.0, false, false)]),
+            (0.16, vec![(1, 103.0, 270.0, false, false)]),
+            (0.24, vec![(1, 103.0, 262.0, false, false)]),
+            (0.26, vec![(1, 103.0, 260.0, false, true)]),
+        ]));
+        assert!(g.hold);
+        assert!(!g.hard_drop && !g.rotate_cw);
+    }
+
+    #[test]
+    fn slow_drag_up_is_not_a_hold() {
+        let g = total(&run(&[
+            (0.0, vec![(1, 100.0, 400.0, true, false)]),
+            (0.4, vec![(1, 100.0, 330.0, false, false)]),
+            (0.8, vec![(1, 100.0, 262.0, false, false)]),
+            (0.9, vec![(1, 100.0, 260.0, false, true)]),
+        ]));
+        assert!(!g.hold);
     }
 
     #[test]
