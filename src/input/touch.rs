@@ -329,10 +329,15 @@ fn grow(r: Rect, by: f32) -> Rect {
 }
 
 fn draw_button(b: &Button, u: f32) {
+    use crate::graphics::style::{self, CYAN, GOLD, INK, PINK};
     let r = b.rect;
-    let ink = Color::new(0.85, 0.9, 1.0, 0.9);
-    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.05, 0.07, 0.15, 0.7));
-    draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0 * u, ink);
+    let ink = INK;
+    let accent = match b.label {
+        "II" => PINK,
+        "MENU" => CYAN,
+        _ => GOLD,
+    };
+    style::panel(r, accent, u);
     let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     if b.label == "II" {
         // Two bars, not text: crisper.

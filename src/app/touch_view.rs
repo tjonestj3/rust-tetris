@@ -9,20 +9,18 @@
 use macroquad::prelude::*;
 
 use super::{
-    draw_enhanced_board_with_data, draw_falling_piece, draw_ghost_block_cursor, draw_ghost_piece,
-    draw_ghost_throw_animation, draw_legacy_board_with_data, draw_legacy_falling_piece,
+    draw_ghost_block_cursor, draw_ghost_throw_animation, draw_legacy_board_with_data, draw_legacy_falling_piece,
     draw_legacy_ghost_piece, draw_line_clear_animation, draw_tetris_celebration,
 };
+use crate::game::config::{BOARD_WIDTH, BUFFER_HEIGHT, LINES_PER_LEVEL, VISIBLE_HEIGHT};
 use crate::game::{Game, GameState};
+use crate::graphics::style::{self, alpha, CYAN, GOLD, GREEN, INK, PINK, SOFT_INK, VIOLET};
 use crate::graphics::text::{draw_text, measure_text};
-use crate::graphics::view::{draw_cover_background, map_camera, screen_camera, HudStyle, Layout, PlayLayout, CANVAS_BOARD};
+use crate::graphics::view::{map_camera, screen_camera, HudStyle, Layout, PlayLayout, CANVAS_BOARD};
 use crate::tetromino::{Tetromino, TetrominoType};
 
-const PANEL_FILL: Color = Color::new(0.02, 0.03, 0.10, 0.82);
-const PANEL_EDGE: Color = Color::new(0.30, 0.85, 1.00, 0.55);
-const LABEL: Color = Color::new(0.45, 0.85, 1.00, 0.95);
-const VALUE: Color = Color::new(1.00, 1.00, 1.00, 0.97);
-const ACCENT: Color = Color::new(1.00, 0.88, 0.25, 1.00);
+const LABEL: Color = SOFT_INK;
+const VALUE: Color = INK;
 
 /// The gestures, for the pause screen and the first-game hint: (gesture, what it does).
 const GESTURES: [(&str, &str); 6] = [
@@ -39,29 +37,31 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
     let p = &layout.play;
     let legacy = game.is_legacy_mode();
 
+    let _ = background;
     screen_camera();
     if legacy {
         clear_background(BLACK);
-    } else {
-        draw_cover_background(background, 0.45);
-    }
-
-    // The board and everything on it, through the board camera.
-    map_camera(CANVAS_BOARD, p.board);
-    if legacy {
+        // The classic look: the desktop drawing, through the board camera.
+        map_camera(CANVAS_BOARD, p.board);
         draw_legacy_board_with_data(&game.board);
-    } else {
-        draw_enhanced_board_with_data(&game.board);
-    }
-    if game.is_clearing_lines() {
-        draw_line_clear_animation(game);
-    } else {
-        if let Some(ghost) = game.calculate_ghost_piece() {
-            if legacy { draw_legacy_ghost_piece(&ghost) } else { draw_ghost_piece(&ghost) }
+        if game.is_clearing_lines() {
+            draw_line_clear_animation(game);
+        } else {
+            if let Some(ghost) = game.calculate_ghost_piece() {
+                draw_legacy_ghost_piece(&ghost);
+            }
+            if let Some(ref piece) = game.current_piece {
+                draw_legacy_falling_piece(piece);
+            }
         }
-        if let Some(ref piece) = game.current_piece {
-            if legacy { draw_legacy_falling_piece(piece) } else { draw_falling_piece(piece) }
+    } else {
+        style::backdrop(get_time() as f32);
+        draw_board(game, p, layout.unit);
+        if game.is_clearing_lines() {
+            map_camera(CANVAS_BOARD, p.board);
+            draw_line_clear_animation(game);
         }
+        map_camera(CANVAS_BOARD, p.board);
     }
     if game.is_ghost_cursor_visible() {
         draw_ghost_block_cursor(game);
@@ -73,9 +73,9 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
     // The panels.
     screen_camera();
     let u = layout.unit;
-    let next = panel(p.next, "NEXT", p, u);
+    let next = panel(p.next, "NEXT", CYAN, p, u);
     draw_piece(next, Some(game.next_piece), p.cell, 1.0);
-    let hold = panel(p.hold, "HOLD", p, u);
+    let hold = panel(p.hold, "HOLD", PINK, p, u);
     draw_piece(hold, game.held_piece, p.cell, if game.can_hold() { 1.0 } else { 0.35 });
     draw_stats(game, p, u);
 
@@ -98,23 +98,66 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
     screen_camera();
 }
 
+/// The board: a dark glass well with a glowing edge, the settled blocks, where the piece will
+/// land, and the piece.
+fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
+    let b = p.board;
+    let cell = b.w / BOARD_WIDTH as f32;
+    let pad = (3.0 * u).round();
+    let well = Rect::new(b.x - pad, b.y - pad, b.w + 2.0 * pad, b.h + 2.0 * pad);
+    let radius = 8.0 * u;
+    style::halo(well, radius, 10.0 * u, CYAN, 0.16);
+    style::round_rect(well, radius, Color::new(0.06, 0.05, 0.19, 0.86), Color::new(0.10, 0.04, 0.22, 0.90));
+
+    // Faint column stripes and row lines.
+    for x in 0..BOARD_WIDTH {
+        if x % 2 == 1 {
+            draw_rectangle(b.x + x as f32 * cell, b.y, cell, b.h, Color::new(1.0, 1.0, 1.0, 0.025));
+        }
+    }
+    for y in 1..VISIBLE_HEIGHT {
+        draw_rectangle(b.x, (b.y + y as f32 * cell).round(), b.w, 1.0, Color::new(0.8, 0.85, 1.0, 0.06));
+    }
+
+    for y in 0..VISIBLE_HEIGHT {
+        for x in 0..BOARD_WIDTH {
+            if let Some(color) = game.board.get_cell(x as i32, (y + BUFFER_HEIGHT) as i32).and_then(|c| c.color()) {
+                style::block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color);
+            }
+        }
+    }
+
+    if !game.is_clearing_lines() {
+        let visible = |(x, y): (i32, i32)| (y >= BUFFER_HEIGHT as i32).then(|| (b.x + x as f32 * cell, b.y + (y - BUFFER_HEIGHT as i32) as f32 * cell));
+        if let Some(ghost) = game.calculate_ghost_piece() {
+            let color = ghost.color();
+            for (x, y) in ghost.absolute_blocks().into_iter().filter_map(visible) {
+                style::ghost_block(x, y, cell, color);
+            }
+        }
+        if let Some(ref piece) = game.current_piece {
+            let color = piece.color();
+            for (x, y) in piece.absolute_blocks().into_iter().filter_map(visible) {
+                style::block(x, y, cell, color);
+            }
+        }
+    }
+
+    style::round_outline(well, radius, (2.0 * u).max(1.0), alpha(CYAN, 0.85));
+}
+
 /// A panel's frame and label; returns the area left for its content.
-fn panel(r: Rect, label: &str, p: &PlayLayout, u: f32) -> Rect {
-    frame(r, u);
-    let pad = (p.cell * 0.3).max(6.0 * u);
+fn panel(r: Rect, label: &str, accent: Color, p: &PlayLayout, u: f32) -> Rect {
+    style::panel(r, accent, u);
+    let pad = (p.cell * 0.3).max(7.0 * u);
     let size = label_size(p, u);
-    draw_text(label, r.x + pad, r.y + pad + size * 0.8, size, LABEL);
+    draw_text(label, r.x + pad, r.y + pad + size * 0.8, size, accent);
     let top = r.y + pad + size + pad * 0.4;
     Rect::new(r.x + pad, top, r.w - 2.0 * pad, r.bottom() - pad - top)
 }
 
-fn frame(r: Rect, u: f32) {
-    draw_rectangle(r.x, r.y, r.w, r.h, PANEL_FILL);
-    draw_rectangle_lines(r.x, r.y, r.w, r.h, (1.5 * u).max(1.0), PANEL_EDGE);
-}
-
 fn label_size(p: &PlayLayout, u: f32) -> f32 {
-    (p.cell * 0.5).clamp(10.0 * u, 17.0 * u)
+    (p.cell * 0.58).clamp(11.0 * u, 19.0 * u)
 }
 
 /// A piece centred in `area`, at most 0.8 of a board cell per block.
@@ -130,17 +173,8 @@ fn draw_piece(area: Rect, piece: Option<TetrominoType>, cell: f32, alpha: f32) {
     let mut color = kind.color();
     color.a *= alpha;
     for (dx, dy) in &blocks {
-        draw_block(x0 + (dx - min_x) as f32 * b, y0 + (dy - min_y) as f32 * b, b, color);
+        style::block(x0 + (dx - min_x) as f32 * b, y0 + (dy - min_y) as f32 * b, b, color);
     }
-}
-
-/// One block, styled like the board's (a highlight on top, a shade at the bottom).
-fn draw_block(x: f32, y: f32, size: f32, color: Color) {
-    let inset = (size * 0.04).max(1.0);
-    let s = size - 2.0 * inset;
-    draw_rectangle(x + inset, y + inset, s, s, color);
-    draw_rectangle(x + inset * 2.0, y + inset * 2.0, s - 2.0 * inset, s * 0.18, Color::new(1.0, 1.0, 1.0, 0.3 * color.a));
-    draw_rectangle(x + inset * 2.0, y + inset + s * 0.84, s - 2.0 * inset, s * 0.12, Color::new(0.0, 0.0, 0.0, 0.2 * color.a));
 }
 
 /// Text sized to fit `max_w`, no bigger than `size`.
@@ -151,8 +185,8 @@ fn fit_size(text: &str, size: f32, max_w: f32) -> f32 {
 
 fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
     let r = p.stats;
-    frame(r, u);
-    let pad = (p.cell * 0.3).max(6.0 * u);
+    style::panel(r, GOLD, u);
+    let pad = (p.cell * 0.3).max(7.0 * u);
     let label = label_size(p, u);
     let inner_w = r.w - 2.0 * pad;
     let score = game.score.to_string();
@@ -167,47 +201,60 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
         let sub_size = fit_size(&sub, label, inner_w);
         let total = label + score_size + sub_size + pad * 0.6;
         let mut y = r.y + (r.h - total) / 2.0;
-        centered("SCORE", cx, y + label * 0.8, label, LABEL);
+        centered("SCORE", cx, y + label * 0.8, label, GOLD);
         y += label + pad * 0.2;
         centered(&score, cx, y + score_size * 0.8, score_size, VALUE);
         y += score_size + pad * 0.4;
-        centered(&sub, cx, y + sub_size * 0.8, sub_size, ACCENT);
+        centered(&sub, cx, y + sub_size * 0.8, sub_size, GREEN);
         return;
     }
 
     // A column: SCORE over a big number, then LEVEL and LINES side by side.
     let x = r.x + pad;
     let mut y = r.y + pad;
-    draw_text("SCORE", x, y + label * 0.8, label, LABEL);
+    draw_text("SCORE", x, y + label * 0.8, label, GOLD);
     y += label + pad * 0.3;
-    let score_size = fit_size(&score, p.cell * 1.15, inner_w);
+    let score_size = fit_size(&score, p.cell * 1.55, inner_w);
     draw_text(&score, x, y + score_size * 0.8, score_size, VALUE);
     y += score_size + pad * 0.9;
 
     let half = inner_w / 2.0;
     let widest = if level.len() >= lines.len() { &level } else { &lines };
-    let value_size = fit_size(widest, p.cell * 0.85, half - pad * 0.5);
+    let value_size = fit_size(widest, p.cell * 1.05, half - pad * 0.5);
     if y + label + value_size <= r.bottom() - pad * 0.5 {
-        draw_text("LEVEL", x, y + label * 0.8, label, LABEL);
-        draw_text("LINES", x + half, y + label * 0.8, label, LABEL);
+        draw_text("LEVEL", x, y + label * 0.8, label, GREEN);
+        draw_text("LINES", x + half, y + label * 0.8, label, CYAN);
         y += label + pad * 0.3;
-        draw_text(&level, x, y + value_size * 0.8, value_size, ACCENT);
-        draw_text(&lines, x + half, y + value_size * 0.8, value_size, ACCENT);
+        draw_text(&level, x, y + value_size * 0.8, value_size, VALUE);
+        draw_text(&lines, x + half, y + value_size * 0.8, value_size, VALUE);
         y += value_size + pad * 0.6;
+
+        // Progress to the next level.
+        let bar_h = (p.cell * 0.28).max(5.0 * u).round();
+        if y + bar_h <= r.bottom() - pad * 0.5 {
+            let done = (game.lines_cleared() % LINES_PER_LEVEL) as f32 / LINES_PER_LEVEL as f32;
+            let bar = Rect::new(x, y, inner_w, bar_h);
+            style::round_rect(bar, bar_h / 2.0, Color::new(1.0, 1.0, 1.0, 0.10), Color::new(1.0, 1.0, 1.0, 0.06));
+            if done > 0.0 {
+                let fill = Rect::new(x, y, (inner_w * done).max(bar_h), bar_h);
+                style::round_rect(fill, bar_h / 2.0, style::mix(GREEN, WHITE, 0.25), CYAN);
+            }
+            y += bar_h + pad * 0.8;
+        }
     }
     if game.ghost_blocks_available > 0 && y + label <= r.bottom() - pad * 0.3 {
         let text = format!("GHOST BLOCKS {}", game.ghost_blocks_available);
-        draw_text(&text, x, y + label * 0.8, fit_size(&text, label, inner_w), LABEL);
+        draw_text(&text, x, y + label * 0.8, fit_size(&text, label, inner_w), VIOLET);
         y += label + pad * 0.6;
     }
 
     // Time, at the bottom of the panel when it's tall enough.
     let secs = game.game_time.max(0.0) as u64;
     let time = format!("{}:{:02}", secs / 60, secs % 60);
-    let time_size = fit_size(&time, p.cell * 0.7, inner_w);
+    let time_size = fit_size(&time, p.cell * 0.9, inner_w);
     let time_top = r.bottom() - pad - time_size - label - pad * 0.3;
     if time_top >= y {
-        draw_text("TIME", x, time_top + label * 0.8, label, LABEL);
+        draw_text("TIME", x, time_top + label * 0.8, label, PINK);
         draw_text(&time, x, time_top + label + pad * 0.3 + time_size * 0.8, time_size, VALUE);
     }
 }
@@ -226,19 +273,16 @@ fn draw_hint(p: &PlayLayout, u: f32, alpha: f32) {
     let row_h = size * 1.6;
     let h = row_h * rows.len() as f32 + size;
     let r = Rect::new(b.x + (b.w - w) / 2.0, b.y + b.h * 0.58, w, h);
-    let mut fill = PANEL_FILL;
-    fill.a *= alpha;
-    let mut edge = PANEL_EDGE;
-    edge.a *= alpha;
-    draw_rectangle(r.x, r.y, r.w, r.h, fill);
-    draw_rectangle_lines(r.x, r.y, r.w, r.h, (1.5 * u).max(1.0), edge);
+    let radius = 10.0 * u;
+    style::round_rect(r, radius, Color::new(0.13, 0.10, 0.34, 0.92 * alpha), Color::new(0.06, 0.04, 0.18, 0.92 * alpha));
+    style::round_outline(r, radius, (1.5 * u).max(1.0), style::alpha(VIOLET, 0.8 * alpha));
     gesture_rows(&rows, r.center().x, r.y + size * 0.5, row_h, size, alpha);
 }
 
 /// Gesture / action rows, aligned on a centre line: the gesture to its left, the action to its right.
 fn gesture_rows(rows: &[(&str, &str)], cx: f32, top: f32, row_h: f32, size: f32, alpha: f32) {
     let gap = size * 0.6;
-    let mut label = LABEL;
+    let mut label = CYAN;
     label.a *= alpha;
     let mut value = VALUE;
     value.a *= alpha;
@@ -254,9 +298,9 @@ fn gesture_rows(rows: &[(&str, &str)], cx: f32, top: f32, row_h: f32, size: f32,
 fn draw_pause(layout: &Layout) {
     screen_camera();
     let (s, u) = (layout.safe, layout.unit);
-    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, Color::new(0.0, 0.0, 0.03, 0.78));
+    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, Color::new(0.05, 0.02, 0.16, 0.80));
     let title = fit_size("PAUSED", 46.0 * u, s.w * 0.8);
-    centered("PAUSED", s.center().x, s.y + s.h * 0.17 + title * 0.8, title, VALUE);
+    title_text("PAUSED", s.center().x, s.y + s.h * 0.17 + title * 0.8, title, u);
 
     // Between the title and the buttons (which start at 80% of the height, minus a button).
     let top = s.y + s.h * 0.17 + title * 1.5;
@@ -264,16 +308,42 @@ fn draw_pause(layout: &Layout) {
     let row_h = ((bottom - top) / GESTURES.len() as f32).min(34.0 * u);
     let size = fit_size("2-FINGER TAP   rotate back", row_h * 0.55, s.w * 0.85);
     let block_h = row_h * GESTURES.len() as f32;
-    gesture_rows(&GESTURES, s.center().x, top + ((bottom - top) - block_h) / 2.0, row_h, size, 1.0);
+    let block_top = top + ((bottom - top) - block_h) / 2.0;
+    let card_w = (s.w * 0.9).min(measure_text("2-FINGER TAP   rotate back", None, size as u16, 1.0).width * 1.25 + 32.0 * u);
+    let card = Rect::new(s.center().x - card_w / 2.0, block_top - row_h * 0.35, card_w, block_h + row_h * 0.7);
+    style::panel(card, VIOLET, u);
+    gesture_rows(&GESTURES, s.center().x, block_top, row_h, size, 1.0);
 }
 
 fn draw_game_over(game: &Game, layout: &Layout) {
     screen_camera();
     let (s, u) = (layout.safe, layout.unit);
-    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, Color::new(0.0, 0.0, 0.03, 0.75));
+    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, Color::new(0.05, 0.02, 0.16, 0.78));
     let size = fit_size("GAME OVER", 52.0 * u, s.w * 0.85);
-    centered("GAME OVER", s.center().x, s.center().y - size * 0.2, size, Color::new(1.0, 0.3, 0.3, 1.0));
-    let score = format!("SCORE {}", game.score);
-    let small = fit_size(&score, 22.0 * u, s.w * 0.8);
-    centered(&score, s.center().x, s.center().y + size * 0.9, small, VALUE);
+    let card_w = (s.w * 0.86).min(size * 7.0);
+    let card = Rect::new(s.center().x - card_w / 2.0, s.center().y - size * 1.6, card_w, size * 3.4);
+    style::panel(card, PINK, u);
+    title_text("GAME OVER", s.center().x, card.y + size * 1.35, size, u);
+    centered("SCORE", s.center().x, card.y + size * 2.15, fit_size("SCORE", 16.0 * u, card_w), GOLD);
+    let score = game.score.to_string();
+    let big = fit_size(&score, 30.0 * u, card_w * 0.8);
+    centered(&score, s.center().x, card.y + size * 2.15 + big * 1.1, big, VALUE);
+}
+
+/// A title in the piece colours, one letter each, with a soft shadow.
+fn title_text(text: &str, cx: f32, baseline: f32, size: f32, u: f32) {
+    const COLORS: [Color; 6] = [CYAN, GREEN, GOLD, PINK, VIOLET, Color::new(1.0, 0.55, 0.25, 1.0)];
+    let w = measure_text(text, None, size.max(1.0) as u16, 1.0).width;
+    let mut x = cx - w / 2.0;
+    let mut k = 0;
+    for ch in text.chars() {
+        let s = ch.to_string();
+        let cw = measure_text(&s, None, size.max(1.0) as u16, 1.0).width;
+        if ch != ' ' {
+            draw_text(&s, x + 2.0 * u, baseline + 2.0 * u, size, Color::new(0.0, 0.0, 0.0, 0.45));
+            draw_text(&s, x, baseline, size, COLORS[k % COLORS.len()]);
+            k += 1;
+        }
+        x += cw;
+    }
 }

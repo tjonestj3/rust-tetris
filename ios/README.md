@@ -107,6 +107,12 @@ Pick a team under Signing & Capabilities and run on a plugged-in iPhone. The sim
     `UIScreen.mainScreen`'s size, which on the Duo is a 375x667 compatibility size at launch (the
     first build's menu came up small and off-centre until a fold).
   - It renders at the screen's native scale (3x) instead of a fixed 2x, so it's pixel-sharp.
+  - The window is kept the size of its scene, and each frame is drawn at the GL drawable's real
+    size, so a stale size can't push the picture into a corner.
+
+Touch settings show the screen's measurements in small print at the bottom (game size, UIKit's
+screen / window / scene / view sizes, the drawable, the scale and the safe area): a screenshot of
+it is enough to sort out a layout problem on a device.
 
   Desktop code is untouched.
 - **Save files** go in the app's Documents folder (`src/platform.rs`); desktop keeps them in the

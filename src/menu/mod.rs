@@ -397,6 +397,12 @@ impl MenuSystem {
         let option_y_start = 320.0;
         let option_spacing = 55.0;
         
+        if crate::platform::is_touch_device() {
+            self.draw_touch_options(&options, option_y_start, option_spacing, option_size);
+            self.draw_menu_particles();
+            return;
+        }
+
         for (i, option) in options.iter().enumerate() {
             let is_selected = i == self.selected_option;
             let option_width = measure_text(option, None, option_size as u16, 1.0).width;
@@ -444,6 +450,85 @@ impl MenuSystem {
         self.draw_menu_particles();
     }
     
+    /// Touch screens: each option a glowing glass button (the rows the taps pick, see
+    /// handle_main_menu_input), NEW GAME lit up as the main one.
+    fn draw_touch_options(&self, options: &[&str], y_start: f32, spacing: f32, size: f32) {
+        use crate::graphics::style::{self, alpha, mix, CYAN, GOLD, GREEN, PINK, VIOLET};
+        let has_save = Game::save_file_exists(&Game::default_save_path());
+        for (i, option) in options.iter().enumerate() {
+            let baseline = y_start + i as f32 * spacing;
+            let r = Rect::new(WINDOW_WIDTH as f32 / 2.0 - 180.0, baseline - size - 10.0, 360.0, size + 20.0);
+            let accent = match i {
+                0 => GREEN,
+                1 if has_save => CYAN,
+                1 => Color::new(0.6, 0.6, 0.75, 1.0),
+                2 => GOLD,
+                3 => VIOLET,
+                _ => PINK,
+            };
+            let dim = i == 1 && !has_save;
+            style::panel(r, if dim { alpha(accent, 0.5) } else { accent }, 1.0);
+            if i == 0 {
+                let pulse = ((self.animation_timer * 2.5).sin() * 0.5 + 0.5) as f32;
+                style::halo(r, 10.0, 10.0, accent, 0.18 + 0.12 * pulse);
+                style::round_rect(r, 10.0, alpha(mix(accent, CYAN, 0.3), 0.55), alpha(accent, 0.30));
+            }
+            let w = measure_text(option, None, size as u16, 1.0).width;
+            let x = r.center().x - w / 2.0;
+            let color = if dim { Color::new(0.7, 0.7, 0.8, 0.6) } else { mix(accent, WHITE, 0.55) };
+            draw_text(option, x + 2.0, baseline + 2.0, size, Color::new(0.0, 0.0, 0.0, 0.45));
+            draw_text(option, x, baseline, size, color);
+        }
+    }
+
+    /// Touch settings: sound and volume as glass buttons (the bands the taps use, see
+    /// handle_settings_input), then the way back and the display info.
+    fn draw_touch_settings(&self) {
+        use crate::graphics::style::{self, alpha, mix, CYAN, GREEN, PINK};
+        let cx = WINDOW_WIDTH as f32 / 2.0;
+        let size = 30.0;
+
+        // Sound: a label and an on/off switch.
+        let on = self.settings.sound_enabled;
+        let accent = if on { GREEN } else { PINK };
+        let r = Rect::new(cx - 180.0, 236.0, 360.0, 64.0);
+        style::panel(r, accent, 1.0);
+        let baseline = r.center().y + size * 0.35;
+        draw_text("SOUND", r.x + 24.0, baseline, size, mix(accent, WHITE, 0.6));
+        let sw = Rect::new(r.right() - 24.0 - 84.0, r.center().y - 17.0, 84.0, 34.0);
+        style::round_rect(sw, 17.0, alpha(accent, if on { 0.85 } else { 0.30 }), alpha(accent, if on { 0.65 } else { 0.20 }));
+        let knob_x = if on { sw.right() - 17.0 } else { sw.x + 17.0 };
+        draw_circle(knob_x, sw.center().y, 13.0, WHITE);
+        let state = if on { "ON" } else { "OFF" };
+        let tw = measure_text(state, None, 16, 1.0).width;
+        let tx = if on { sw.x + 12.0 } else { sw.right() - 12.0 - tw };
+        draw_text(state, tx, sw.center().y + 6.0, 16.0, WHITE);
+
+        // Volume: the percentage and a bar.
+        let r = Rect::new(cx - 180.0, 326.0, 360.0, 88.0);
+        style::panel(r, CYAN, 1.0);
+        let pct = format!("{:.0}%", self.settings.volume * 100.0);
+        draw_text("VOLUME", r.x + 24.0, r.y + 38.0, size, mix(CYAN, WHITE, 0.6));
+        let pw = measure_text(&pct, None, size as u16, 1.0).width;
+        draw_text(&pct, r.right() - 24.0 - pw, r.y + 38.0, size, WHITE);
+        let bar = Rect::new(r.x + 24.0, r.y + 56.0, r.w - 48.0, 12.0);
+        style::round_rect(bar, 6.0, Color::new(1.0, 1.0, 1.0, 0.12), Color::new(1.0, 1.0, 1.0, 0.08));
+        if self.settings.volume > 0.0 {
+            let fill = Rect::new(bar.x, bar.y, (bar.w * self.settings.volume).max(12.0), bar.h);
+            style::round_rect(fill, 6.0, mix(CYAN, WHITE, 0.3), style::VIOLET);
+        }
+
+        let hint = "Tap to change  -  tap outside to go back";
+        let hw = measure_text(hint, None, 18, 1.0).width;
+        draw_text(hint, cx - hw / 2.0, 470.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
+
+        let info = crate::platform::display_info();
+        for (i, line) in info.lines().enumerate() {
+            let w = measure_text(line, None, 11, 1.0).width;
+            draw_text(line, cx - w / 2.0, 506.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
+        }
+    }
+
     /// Render the leaderboard screen
     fn render_leaderboard(&self, background_texture: &Texture2D) {
         let touch = crate::platform::is_touch_device();
@@ -488,6 +573,12 @@ impl MenuSystem {
                     2 => Color::new(0.8, 0.5, 0.2, 1.0),
                     _ => Color::new(0.8, 0.8, 0.8, 0.9),
                 };
+                let accent = if row < 3 { color } else { crate::graphics::style::VIOLET };
+                crate::graphics::style::panel(
+                    Rect::new(TOUCH_TABLE_X - 14.0, y - 31.0, TOUCH_TABLE_W + 28.0, 40.0),
+                    crate::graphics::style::alpha(accent, if row < 3 { 1.0 } else { 0.6 }),
+                    0.8,
+                );
                 let mut name = entry.name.clone();
                 name.truncate(10);
                 let score = entry.score.to_string();
@@ -578,6 +669,11 @@ impl MenuSystem {
         let title_y = 150.0;
         
         self.draw_text_with_outline(title, title_x, title_y, title_size, Color::new(0.8, 0.4, 1.0, 1.0));
+
+        if touch {
+            self.draw_touch_settings();
+            return;
+        }
         
         // Draw settings options
         let option_size = 32.0;
@@ -799,7 +895,13 @@ impl MenuSystem {
     /// the whole screen (graphics::view::draw_cover_background); on desktop, the canvas.
     fn draw_background(&self, background_texture: &Texture2D, dim: f32) {
         if crate::platform::is_touch_device() {
-            crate::graphics::view::draw_cover_background(background_texture, dim);
+            let _ = (background_texture, dim);
+            let ppu = crate::graphics::text::pixels_per_unit();
+            push_camera_state();
+            set_default_camera();
+            crate::graphics::style::backdrop(self.animation_timer as f32);
+            pop_camera_state();
+            crate::graphics::text::set_pixels_per_unit(ppu);
             return;
         }
         clear_background(Color::new(0.02, 0.02, 0.08, 1.0));
@@ -816,8 +918,9 @@ impl MenuSystem {
                 let last = 320.0 + (self.get_main_menu_options().len() as f32 - 1.0) * 55.0;
                 Rect::new(230.0, 70.0, 440.0, last + 45.0 - 70.0)
             }
-            // Touch settings are compact: the "go back" line sits under the volume bar (y 480).
-            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 410.0),
+            // Touch settings are compact: the "go back" line sits under the volume bar (y 480),
+            // the display info under that.
+            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 450.0),
             MenuState::Leaderboard => Rect::new(
                 TOUCH_TABLE_X - 20.0,
                 50.0,
