@@ -54,7 +54,7 @@ impl Layout {
     pub fn compute(canvas_src: Rect) -> Self {
         let (w, h) = (screen_width(), screen_height());
         let unit = points_scale();
-        let (top, left, bottom, right) = safe_insets();
+        let (top, left, bottom, right) = usable_insets(safe_insets(), w, h);
         let screen = Rect::new(0.0, 0.0, w, h);
         let safe = Rect::new(left * unit, top * unit, w - (left + right) * unit, h - (top + bottom) * unit);
         Self::for_screen(screen, safe, unit, canvas_src)
@@ -266,6 +266,18 @@ pub fn draw_cover_background(texture: &Texture2D, dim: f32) {
     set_pixels_per_unit(ppu);
 }
 
+/// The insets the layout keeps clear of. Upright, only the top and bottom ones (the Dynamic
+/// Island, the home bar): an iPhone has nothing at its sides then, and the folded Duo reports its
+/// curved right-hand edge as unsafe, which pushed everything left of it and left the edge empty.
+/// Sideways, all of them (the island is at a side then).
+fn usable_insets((top, left, bottom, right): (f32, f32, f32, f32), w: f32, h: f32) -> (f32, f32, f32, f32) {
+    if h >= w {
+        (top, 0.0, bottom, 0.0)
+    } else {
+        (top, left, bottom, right)
+    }
+}
+
 /// The largest rect with `src`'s proportions, centred in `area`.
 pub fn fit(src: Rect, area: Rect) -> Rect {
     let scale = (area.w / src.w).min(area.h / src.h).max(0.01);
@@ -333,6 +345,14 @@ mod tests {
         assert_eq!(p.style, HudStyle::OneColumn);
         assert!(p.board.h >= 574.0 - 2.0 * 10.0 - 20.0, "board only {}", p.board.h);
         assert_sane(&p, 458.0, 574.0);
+    }
+
+    #[test]
+    fn upright_ignores_side_insets() {
+        // The folded Duo's curved edge comes in as a right inset; upright, it's drawn over.
+        assert_eq!(usable_insets((59.0, 0.0, 34.0, 90.0), 466.0, 678.0), (59.0, 0.0, 34.0, 0.0));
+        // Sideways, the island's side is kept clear.
+        assert_eq!(usable_insets((0.0, 50.0, 21.0, 50.0), 678.0, 466.0), (0.0, 50.0, 21.0, 50.0));
     }
 
     #[test]
