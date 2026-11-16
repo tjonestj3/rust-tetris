@@ -23,13 +23,14 @@ const LABEL: Color = SOFT_INK;
 const VALUE: Color = INK;
 
 /// The gestures, for the pause screen and the first-game hint: (gesture, what it does).
-const GESTURES: [(&str, &str); 6] = [
+const GESTURES: [(&str, &str); 7] = [
     ("TAP", "rotate"),
     ("2-FINGER TAP", "rotate back"),
     ("DRAG", "move"),
     ("DRAG DOWN", "soft drop"),
     ("FLICK DOWN", "hard drop"),
     ("FLICK UP", "hold"),
+    ("TAP HOLD", "hold"),
 ];
 
 /// Draw the game screen. `hint` (0..1) fades the first-game gesture hint in and out.
@@ -77,6 +78,12 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
     draw_piece(next, Some(game.next_piece), p.cell, 1.0);
     let hold = panel(p.hold, "HOLD", PINK, p, u);
     draw_piece(hold, game.held_piece, p.cell, if game.can_hold() { 1.0 } else { 0.35 });
+    if game.held_piece.is_none() {
+        // The panel is a button (input::touch): say so until something's in it.
+        let size = fit_size("TAP TO HOLD", label_size(p, u) * 0.9, hold.w);
+        let w = measure_text("TAP TO HOLD", None, size.max(1.0) as u16, 1.0).width;
+        draw_text("TAP TO HOLD", hold.center().x - w / 2.0, hold.center().y + size * 0.35, size, alpha(PINK, 0.7));
+    }
     draw_stats(game, p, u);
 
     if hint > 0.0 && game.state == GameState::Playing {
