@@ -5,9 +5,11 @@
 //! - **drag sideways**: move the piece, one cell per step, following the finger
 //! - **drag down** (and keep the finger there): soft drop
 //! - **flick down**: hard drop; **flick up**, or **tap the HOLD panel**: hold
+//! - **tap the score panel**: aim a ghost block (when there's one to use); then tap a cell to aim
+//!   there, and tap the aimed cell (or the score panel) again to throw it
 //!
 //! The one thing drawn is a small pause icon in the corner (and Resume / Menu while paused); the
-//! HOLD panel (drawn by app::touch_view) is a button too.
+//! HOLD and score panels (drawn by app::touch_view) are buttons too.
 //! Menus are tapped directly ([`canvas_tap`]).
 //!
 //! Once a frame, before any input is read, the app calls [`begin_frame`]; the game reads
@@ -48,6 +50,8 @@ pub struct Gestures {
     pub hold: bool,
     /// Soft drop while this is true.
     pub soft_drop: bool,
+    /// The board cell (column, row counting the hidden rows above) a one-finger tap landed on.
+    pub tap_cell: Option<(i32, i32)>,
 }
 
 /// One finger this frame.
@@ -81,8 +85,8 @@ struct Gesture {
 /// How far outside a button a tap still counts, in points.
 const BUTTON_SLACK: f32 = 10.0;
 
-/// The label of the HOLD panel's button: not drawn here (the panel is the button).
-const HOLD_PANEL: &str = "";
+/// The label of the HOLD and score panels' buttons: not drawn here (the panel is the button).
+const PANEL: &str = "";
 
 #[derive(Debug, Clone, Copy)]
 struct Button {
@@ -299,6 +303,7 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
                 s.gestures.rotate_ccw = true;
             } else {
                 s.gestures.rotate_cw = true;
+                s.gestures.tap_cell = board_cell(layout, g.start);
             }
         } else if g.max_fingers < 2 && vertical && v.y > 900.0 && pos.y - g.start.y > step {
             s.gestures.hard_drop = true;
@@ -320,21 +325,32 @@ fn is_flick_up(g: &Gesture, pos: Vec2, v: Vec2, now: f64, step: f32) -> bool {
     up > 1.5 * step && straight && (fast_at_lift || quick)
 }
 
+/// The board cell under `pos`, if it's on the board.
+fn board_cell(layout: &Layout, pos: Vec2) -> Option<(i32, i32)> {
+    use crate::game::config::{BOARD_WIDTH, BUFFER_HEIGHT, VISIBLE_HEIGHT};
+    let b = layout.play.board;
+    if !b.contains(pos) {
+        return None;
+    }
+    let cell = b.w / BOARD_WIDTH as f32;
+    let x = (((pos.x - b.x) / cell) as i32).min(BOARD_WIDTH as i32 - 1);
+    let y = (((pos.y - b.y) / cell) as i32).min(VISIBLE_HEIGHT as i32 - 1);
+    Some((x, y + BUFFER_HEIGHT as i32))
+}
+
 fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
     let u = layout.unit;
     match mode {
         Mode::Game => {
-            // Their places in the HUD (graphics::view::PlayLayout). The HOLD panel is drawn by
-            // app::touch_view; shrunk by the slack taps get, so a tap just off it still isn't one.
+            // Their places in the HUD (graphics::view::PlayLayout). The HOLD and score panels are
+            // drawn by app::touch_view; shrunk by the slack taps get, so a tap just off one still
+            // isn't one. The score panel is B: aim a ghost block, then throw it.
             let slack = BUTTON_SLACK * u;
-            let h = layout.play.hold;
+            let shrink = |r: Rect| Rect::new(r.x + slack, r.y + slack, (r.w - 2.0 * slack).max(0.0), (r.h - 2.0 * slack).max(0.0));
             vec![
                 Button { rect: layout.play.pause, key: KeyCode::P, label: "II" },
-                Button {
-                    rect: Rect::new(h.x + slack, h.y + slack, (h.w - 2.0 * slack).max(0.0), (h.h - 2.0 * slack).max(0.0)),
-                    key: KeyCode::C,
-                    label: HOLD_PANEL,
-                },
+                Button { rect: shrink(layout.play.hold), key: KeyCode::C, label: PANEL },
+                Button { rect: shrink(layout.play.stats), key: KeyCode::B, label: PANEL },
             ]
         }
         Mode::Paused => {
@@ -356,7 +372,7 @@ fn grow(r: Rect, by: f32) -> Rect {
 }
 
 fn draw_button(b: &Button, u: f32) {
-    if b.label == HOLD_PANEL {
+    if b.label == PANEL {
         return;
     }
     use crate::graphics::style::{self, CYAN, GOLD, INK, PINK};
@@ -418,13 +434,32 @@ mod tests {
             hard_drop: a.hard_drop || g.hard_drop,
             hold: a.hold || g.hold,
             soft_drop: a.soft_drop || g.soft_drop,
+            tap_cell: a.tap_cell.or(g.tap_cell),
         })
     }
 
     #[test]
     fn tap_rotates_clockwise() {
         let g = total(&run(&[(0.0, vec![(1, 100.0, 100.0, true, false)]), (0.1, vec![(1, 102.0, 101.0, false, true)])]));
-        assert_eq!(g, Gestures { rotate_cw: true, ..Default::default() });
+        assert_eq!(g, Gestures { rotate_cw: true, tap_cell: g.tap_cell, ..Default::default() });
+    }
+
+    #[test]
+    fn tap_on_the_board_says_which_cell() {
+        use crate::game::config::{BOARD_WIDTH, BUFFER_HEIGHT, VISIBLE_HEIGHT};
+        let b = layout().play.board;
+        let cell = b.w / BOARD_WIDTH as f32;
+        // The middle of column 3, row 5 of the visible rows.
+        let (x, y) = (b.x + 3.5 * cell, b.y + 5.5 * cell);
+        let g = total(&run(&[(0.0, vec![(1, x, y, true, false)]), (0.1, vec![(1, x, y, false, true)])]));
+        assert_eq!(g.tap_cell, Some((3, 5 + BUFFER_HEIGHT as i32)));
+        // The bottom-right corner is the last cell, not past it.
+        let g = total(&run(&[(0.0, vec![(1, b.right() - 0.01, b.bottom() - 0.01, true, true)])]));
+        assert_eq!(g.tap_cell, Some((BOARD_WIDTH as i32 - 1, (VISIBLE_HEIGHT + BUFFER_HEIGHT) as i32 - 1)));
+        // Off the board: no cell, still a rotate.
+        let g = total(&run(&[(0.0, vec![(1, b.x - 5.0, b.y + 5.0, true, true)])]));
+        assert_eq!(g.tap_cell, None);
+        assert!(g.rotate_cw);
     }
 
     #[test]

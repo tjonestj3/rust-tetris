@@ -107,6 +107,23 @@ pub async fn run() {
         if std::env::args().any(|a| a == "--paused") {
             new_game.toggle_pause();
         }
+        // `--ghosts` gives two ghost blocks over a few rows of rubble; `--aiming` aims one too.
+        if std::env::args().any(|a| a == "--ghosts") {
+            use crate::board::Cell;
+            use crate::game::config::{BOARD_HEIGHT, BOARD_WIDTH, BUFFER_HEIGHT};
+            let bottom = (BOARD_HEIGHT + BUFFER_HEIGHT) as i32 - 1;
+            for (row, gaps) in [(0, [2, 7]), (1, [4, 5]), (2, [0, 8])] {
+                for x in 0..BOARD_WIDTH as i32 {
+                    if !gaps.contains(&x) {
+                        new_game.board.set_cell(x, bottom - row, Cell::Filled(Color::new(0.5, 0.4, 0.9, 1.0)));
+                    }
+                }
+            }
+            new_game.ghost_blocks_available = 2;
+            if std::env::args().any(|a| a == "--aiming") {
+                new_game.toggle_ghost_block_mode();
+            }
+        }
         game = Some(new_game);
         app_state = AppState::Playing;
     }
@@ -428,6 +445,21 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
         }
         if key_pressed(KeyCode::Right) {
             game.move_ghost_block_cursor(1, 0);
+        }
+        // Touch: tap a cell to aim there, tap the aimed cell to throw; a tap off the board puts
+        // the ghost block away. (Tapping the score panel again is B: throw.)
+        let gestures = touch::gestures();
+        match gestures.tap_cell {
+            Some(cell) if cell == game.ghost_block_cursor => {
+                game.place_ghost_block();
+            }
+            Some((x, y)) => {
+                if game.aim_ghost_block(x, y) {
+                    audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+                }
+            }
+            None if gestures.rotate_cw || gestures.rotate_ccw => game.toggle_ghost_block_mode(),
+            None => {}
         }
         return; // Skip normal game controls when in placement mode
     }
@@ -794,6 +826,21 @@ fn handle_input(game: &mut Game, audio_system: &AudioSystem) {
         }
         if key_pressed(KeyCode::Right) {
             game.move_ghost_block_cursor(1, 0);
+        }
+        // Touch: tap a cell to aim there, tap the aimed cell to throw; a tap off the board puts
+        // the ghost block away. (Tapping the score panel again is B: throw.)
+        let gestures = touch::gestures();
+        match gestures.tap_cell {
+            Some(cell) if cell == game.ghost_block_cursor => {
+                game.place_ghost_block();
+            }
+            Some((x, y)) => {
+                if game.aim_ghost_block(x, y) {
+                    audio_system.play_sound_with_volume(SoundType::UiClick, 0.6);
+                }
+            }
+            None if gestures.rotate_cw || gestures.rotate_ccw => game.toggle_ghost_block_mode(),
+            None => {}
         }
         return; // Skip normal game controls when in placement mode
     }

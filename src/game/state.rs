@@ -913,6 +913,22 @@ impl Game {
         }
     }
     
+    /// Aim the ghost block at (x, y) (a tapped cell). Only empty cells on the board can be aimed
+    /// at; returns whether the aim moved there.
+    pub fn aim_ghost_block(&mut self, x: i32, y: i32) -> bool {
+        if !self.ghost_block_placement_mode {
+            return false;
+        }
+        match self.board.get_cell(x, y) {
+            Some(cell) if cell.is_empty() && y >= BUFFER_HEIGHT as i32 => {
+                self.ghost_block_cursor = (x, y);
+                self.update_cursor_index_for_position(x, y);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Update cursor index to match the current position (for manual movement)
     fn update_cursor_index_for_position(&mut self, x: i32, y: i32) {
         if let Some(index) = self.ghost_smart_positions.iter().position(|(px, py, _)| *px == x && *py == y) {
