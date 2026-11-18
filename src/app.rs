@@ -55,7 +55,7 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) 
             _ => Mode::Menu,
         },
         AppState::Playing => match game {
-            Some(g) if g.state == GameState::Paused => Mode::Paused,
+            Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
             Some(g) if g.state == GameState::Playing => Mode::Game,
             _ => Mode::None,
         },
@@ -124,6 +124,7 @@ pub async fn run() {
                 new_game.toggle_ghost_block_mode();
             }
         }
+        new_game.legacy_mode = menu_system.settings.legacy_mode;
         game = Some(new_game);
         app_state = AppState::Playing;
     }
@@ -227,6 +228,12 @@ pub async fn run() {
                     MenuAction::None => {
                         // Continue in menu
                     },
+                }
+                // New and loaded games start in the look chosen in Settings.
+                if matches!(action, MenuAction::NewGame | MenuAction::LoadGame) {
+                    if let Some(g) = game.as_mut() {
+                        g.legacy_mode = menu_system.settings.legacy_mode;
+                    }
                 }
                 
                 // Render menu
@@ -364,7 +371,7 @@ pub async fn run() {
 }
 
 /// Handle game input and transitions back to menu
-fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mut AppState, _menu_system: &mut MenuSystem) {
+fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mut AppState, menu_system: &mut MenuSystem) {
     // Quit to menu
     if key_pressed(KeyCode::Escape) {
         *app_state = AppState::Menu;
@@ -389,6 +396,7 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
     // Reset game (R key) - available in any state
     if key_pressed(KeyCode::R) {
         game.reset();
+        game.legacy_mode = menu_system.settings.legacy_mode;
         audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
         return;
     }
@@ -403,6 +411,11 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
     // Legacy mode toggle (L key) - available in any state except game over
     if key_pressed(KeyCode::L) && game.state != GameState::GameOver {
         game.toggle_legacy_mode();
+        // Remembered for the next game too.
+        menu_system.settings.legacy_mode = game.is_legacy_mode();
+        if let Err(e) = menu_system.settings.save_to_file(crate::menu::GameSettings::default_path()) {
+            log::warn!("Failed to save settings: {}", e);
+        }
         audio_system.play_sound_with_volume(SoundType::UiClick, 1.0);
         return;
     }

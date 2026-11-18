@@ -33,8 +33,8 @@ pub enum Mode {
     Menu,
     /// Playing: gestures, plus the pause icon.
     Game,
-    /// Paused: Resume / Menu buttons.
-    Paused,
+    /// Paused: Resume / Legacy / Menu buttons (`legacy`: the game is in the legacy look).
+    Paused { legacy: bool },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
 }
@@ -87,6 +87,10 @@ const BUTTON_SLACK: f32 = 10.0;
 
 /// The label of the HOLD and score panels' buttons: not drawn here (the panel is the button).
 const PANEL: &str = "";
+
+/// The pause screen's legacy-look switch.
+const LEGACY_ON: &str = "LEGACY ON";
+const LEGACY_OFF: &str = "LEGACY OFF";
 
 #[derive(Debug, Clone, Copy)]
 struct Button {
@@ -177,7 +181,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
                 s.canvas_tap = fresh.first().and_then(|f| layout.screen_to_canvas(f.pos));
             }
             Mode::Game => track_gesture(&mut s, layout, &fingers, &fresh, now),
-            Mode::Paused | Mode::None => s.gesture = None,
+            Mode::Paused { .. } | Mode::None => s.gesture = None,
         }
     });
 }
@@ -353,14 +357,22 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 Button { rect: shrink(layout.play.stats), key: KeyCode::B, label: PANEL },
             ]
         }
-        Mode::Paused => {
-            // Below the pause screen's text (app::touch_view::draw_pause).
-            let (w, h, gap) = ((220.0 * u).min(layout.safe.w * 0.7), 52.0 * u, 14.0 * u);
+        Mode::Paused { legacy } => {
+            // Below the pause screen's text (app::touch_view::draw_pause): Resume, then Legacy
+            // (the L key: switch the look) and Menu side by side.
+            let (w, h, gap) = ((260.0 * u).min(layout.safe.w * 0.8), 52.0 * u, 14.0 * u);
+            let half = (w - gap) / 2.0;
             let cx = layout.safe.center().x;
             let cy = layout.safe.y + layout.safe.h * 0.8;
+            let (left, low) = (cx - w / 2.0, cy + gap / 2.0);
             vec![
-                Button { rect: Rect::new(cx - w / 2.0, cy - h - gap / 2.0, w, h), key: KeyCode::P, label: "RESUME" },
-                Button { rect: Rect::new(cx - w / 2.0, cy + gap / 2.0, w, h), key: KeyCode::Escape, label: "MENU" },
+                Button { rect: Rect::new(left, cy - h - gap / 2.0, w, h), key: KeyCode::P, label: "RESUME" },
+                Button {
+                    rect: Rect::new(left, low, half, h),
+                    key: KeyCode::L,
+                    label: if legacy { LEGACY_ON } else { LEGACY_OFF },
+                },
+                Button { rect: Rect::new(left + half + gap, low, half, h), key: KeyCode::Escape, label: "MENU" },
             ]
         }
         _ => Vec::new(),
@@ -375,12 +387,14 @@ fn draw_button(b: &Button, u: f32) {
     if b.label == PANEL {
         return;
     }
-    use crate::graphics::style::{self, CYAN, GOLD, INK, PINK};
+    use crate::graphics::style::{self, CYAN, GOLD, GREEN, INK, PINK, VIOLET};
     let r = b.rect;
     let ink = INK;
     let accent = match b.label {
         "II" => PINK,
         "MENU" => CYAN,
+        LEGACY_ON => GREEN,
+        LEGACY_OFF => VIOLET,
         _ => GOLD,
     };
     style::panel(r, accent, u);
@@ -392,7 +406,12 @@ fn draw_button(b: &Button, u: f32) {
         draw_rectangle(cx + bw * 0.6, cy - bh / 2.0, bw, bh, ink);
         return;
     }
-    let size = r.h * 0.45;
+    // As big as fits.
+    let mut size = r.h * 0.45;
+    let w = measure_text(b.label, None, size as u16, 1.0).width;
+    if w > r.w * 0.84 {
+        size *= r.w * 0.84 / w;
+    }
     let dims = measure_text(b.label, None, size as u16, 1.0);
     draw_text(b.label, cx - dims.width / 2.0, cy + dims.offset_y / 2.0, size, ink);
 }

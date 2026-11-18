@@ -38,6 +38,10 @@ pub struct GameSettings {
     /// The touch gesture hint has been shown (it's shown over the first game only).
     #[serde(default)]
     pub gesture_hint_seen: bool,
+    /// Play in the legacy (terminal-style) look. New games start in it; the in-game toggle
+    /// (L, or the pause screen's button) changes it too.
+    #[serde(default)]
+    pub legacy_mode: bool,
 }
 
 impl GameSettings {
@@ -47,6 +51,7 @@ impl GameSettings {
             sound_enabled: true,
             volume: 0.7,
             gesture_hint_seen: false,
+            legacy_mode: false,
         }
     }
     
@@ -219,16 +224,20 @@ impl MenuSystem {
     
     /// Handle input for the settings screen
     fn handle_settings_input(&mut self) -> MenuAction {
-        // Touch: tap sound (y 280) or volume (y 360) to change it; tap anywhere else to go back.
+        // Touch: tap sound, volume or legacy (see draw_touch_settings) to change it; tap anywhere
+        // else to go back.
         let mut tap_back = false;
         if let Some(tap) = canvas_tap() {
-            if (220.0..320.0).contains(&tap.y) {
+            if (200.0..288.0).contains(&tap.y) {
                 self.selected_option = 0;
                 self.settings.sound_enabled = !self.settings.sound_enabled;
-            } else if (320.0..420.0).contains(&tap.y) {
+            } else if (288.0..392.0).contains(&tap.y) {
                 self.selected_option = 1;
                 let next = self.settings.volume + 0.1;
                 self.settings.volume = if next > 1.05 { 0.0 } else { next.min(1.0) };
+            } else if (392.0..480.0).contains(&tap.y) {
+                self.selected_option = 2;
+                self.settings.legacy_mode = !self.settings.legacy_mode;
             } else {
                 tap_back = true;
             }
@@ -245,11 +254,11 @@ impl MenuSystem {
         
         // Navigate settings
         if key_pressed(KeyCode::Up) || key_pressed(KeyCode::W) {
-            self.selected_option = if self.selected_option == 0 { 1 } else { 0 };
+            self.selected_option = (self.selected_option + 2) % 3;
         }
         
         if key_pressed(KeyCode::Down) || key_pressed(KeyCode::S) {
-            self.selected_option = (self.selected_option + 1) % 2;
+            self.selected_option = (self.selected_option + 1) % 3;
         }
         
         // Modify settings
@@ -267,6 +276,7 @@ impl MenuSystem {
                         self.settings.volume = (self.settings.volume + 0.1).min(1.0);
                     }
                 },
+                2 => self.settings.legacy_mode = !self.settings.legacy_mode,
                 _ => {},
             }
         }
@@ -488,24 +498,27 @@ impl MenuSystem {
         let cx = WINDOW_WIDTH as f32 / 2.0;
         let size = 30.0;
 
-        // Sound: a label and an on/off switch.
-        let on = self.settings.sound_enabled;
-        let accent = if on { GREEN } else { PINK };
-        let r = Rect::new(cx - 180.0, 236.0, 360.0, 64.0);
-        style::panel(r, accent, 1.0);
-        let baseline = r.center().y + size * 0.35;
-        draw_text("SOUND", r.x + 24.0, baseline, size, mix(accent, WHITE, 0.6));
-        let sw = Rect::new(r.right() - 24.0 - 84.0, r.center().y - 17.0, 84.0, 34.0);
-        style::round_rect(sw, 17.0, alpha(accent, if on { 0.85 } else { 0.30 }), alpha(accent, if on { 0.65 } else { 0.20 }));
-        let knob_x = if on { sw.right() - 17.0 } else { sw.x + 17.0 };
-        draw_circle(knob_x, sw.center().y, 13.0, WHITE);
-        let state = if on { "ON" } else { "OFF" };
-        let tw = measure_text(state, None, 16, 1.0).width;
-        let tx = if on { sw.x + 12.0 } else { sw.right() - 12.0 - tw };
-        draw_text(state, tx, sw.center().y + 6.0, 16.0, WHITE);
+        // A label and an on/off switch.
+        let switch = |label: &str, y: f32, on: bool, on_color: Color, off_color: Color| {
+            let accent = if on { on_color } else { off_color };
+            let r = Rect::new(cx - 180.0, y, 360.0, 64.0);
+            style::panel(r, accent, 1.0);
+            let baseline = r.center().y + size * 0.35;
+            draw_text(label, r.x + 24.0, baseline, size, mix(accent, WHITE, 0.6));
+            let sw = Rect::new(r.right() - 24.0 - 84.0, r.center().y - 17.0, 84.0, 34.0);
+            style::round_rect(sw, 17.0, alpha(accent, if on { 0.85 } else { 0.30 }), alpha(accent, if on { 0.65 } else { 0.20 }));
+            let knob_x = if on { sw.right() - 17.0 } else { sw.x + 17.0 };
+            draw_circle(knob_x, sw.center().y, 13.0, WHITE);
+            let state = if on { "ON" } else { "OFF" };
+            let tw = measure_text(state, None, 16, 1.0).width;
+            let tx = if on { sw.x + 12.0 } else { sw.right() - 12.0 - tw };
+            draw_text(state, tx, sw.center().y + 6.0, 16.0, WHITE);
+        };
+
+        switch("SOUND", 216.0, self.settings.sound_enabled, GREEN, PINK);
 
         // Volume: the percentage and a bar.
-        let r = Rect::new(cx - 180.0, 326.0, 360.0, 88.0);
+        let r = Rect::new(cx - 180.0, 296.0, 360.0, 88.0);
         style::panel(r, CYAN, 1.0);
         let pct = format!("{:.0}%", self.settings.volume * 100.0);
         draw_text("VOLUME", r.x + 24.0, r.y + 38.0, size, mix(CYAN, WHITE, 0.6));
@@ -518,14 +531,17 @@ impl MenuSystem {
             style::round_rect(fill, 6.0, mix(CYAN, WHITE, 0.3), style::VIOLET);
         }
 
+        // Legacy: the terminal-style look, for new games.
+        switch("LEGACY", 400.0, self.settings.legacy_mode, style::VIOLET, style::VIOLET);
+
         let hint = "Tap to change  -  tap outside to go back";
         let hw = measure_text(hint, None, 18, 1.0).width;
-        draw_text(hint, cx - hw / 2.0, 470.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
+        draw_text(hint, cx - hw / 2.0, 500.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
 
         let info = crate::platform::display_info();
         for (i, line) in info.lines().enumerate() {
             let w = measure_text(line, None, 11, 1.0).width;
-            draw_text(line, cx - w / 2.0, 506.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
+            draw_text(line, cx - w / 2.0, 530.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
         }
     }
 
@@ -759,6 +775,24 @@ impl MenuSystem {
             self.draw_text_with_outline(instruction, inst_x, inst_y, 18.0, Color::new(0.7, 0.7, 0.7, 0.8));
         }
         
+        // Legacy look
+        let legacy_text = format!("LEGACY: {}", if self.settings.legacy_mode { "ON" } else { "OFF" });
+        let legacy_w = measure_text(&legacy_text, None, option_size as u16, 1.0).width;
+        let legacy_x = (WINDOW_WIDTH as f32 - legacy_w) / 2.0;
+        let legacy_y = option_y_start + option_spacing * 2.75;
+        let legacy_selected = self.selected_option == 2;
+        if legacy_selected {
+            let pulse = (self.animation_timer * 3.0).sin() * 0.3 + 0.7;
+            draw_rectangle(legacy_x - 20.0, legacy_y - option_size - 5.0, legacy_w + 40.0, option_size + 10.0, Color::new(0.2, 0.4, 1.0, 0.3 * pulse as f32));
+        }
+        let legacy_color = if legacy_selected {
+            let pulse = (self.animation_timer * 4.0).sin() * 0.2 + 0.8;
+            Color::new(1.0, 1.0, 0.8, pulse as f32)
+        } else {
+            Color::new(0.75, 0.6, 1.0, 0.9)
+        };
+        self.draw_text_with_outline(&legacy_text, legacy_x, legacy_y, option_size, legacy_color);
+
         // Draw general instructions
         let instruction = if touch { "Tap anywhere else to go back" } else { "Press ESCAPE to return to main menu" };
         let inst_width = measure_text(instruction, None, 20, 1.0).width;
@@ -918,9 +952,9 @@ impl MenuSystem {
                 let last = 320.0 + (self.get_main_menu_options().len() as f32 - 1.0) * 55.0;
                 Rect::new(230.0, 70.0, 440.0, last + 45.0 - 70.0)
             }
-            // Touch settings are compact: the "go back" line sits under the volume bar (y 480),
-            // the display info under that.
-            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 450.0),
+            // Touch settings are compact: the "go back" line sits under the legacy switch
+            // (y 500), the display info under that.
+            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 475.0),
             MenuState::Leaderboard => Rect::new(
                 TOUCH_TABLE_X - 20.0,
                 50.0,
