@@ -23,7 +23,7 @@ const LABEL: Color = SOFT_INK;
 const VALUE: Color = INK;
 
 /// The gestures, for the pause screen and the first-game hint: (gesture, what it does).
-const GESTURES: [(&str, &str); 7] = [
+const GESTURES: [(&str, &str); 8] = [
     ("TAP", "rotate"),
     ("2-FINGER TAP", "rotate back"),
     ("DRAG", "move"),
@@ -31,6 +31,7 @@ const GESTURES: [(&str, &str); 7] = [
     ("FLICK DOWN", "hard drop"),
     ("FLICK UP", "hold"),
     ("TAP HOLD", "hold"),
+    ("TAP SCORE", "ghost block"),
 ];
 
 /// Draw the game screen. `hint` (0..1) fades the first-game gesture hint in and out.
@@ -73,6 +74,9 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
 
     // The panels.
     screen_camera();
+    if game.ghost_block_placement_mode {
+        draw_aim_banner(p, layout.unit);
+    }
     let u = layout.unit;
     let next = panel(p.next, "NEXT", CYAN, p, u);
     draw_piece(next, Some(game.next_piece), p.cell, 1.0);
@@ -193,6 +197,16 @@ fn fit_size(text: &str, size: f32, max_w: f32) -> f32 {
 fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
     let r = p.stats;
     style::panel(r, GOLD, u);
+    let ghosts = game.ghost_blocks_available;
+    if ghosts > 0 {
+        // The panel is a button (input::touch) while there's a ghost block to use: a violet
+        // glow that breathes, brighter while aiming.
+        let aiming = game.ghost_block_placement_mode;
+        let pulse = (get_time() as f32 * 3.0).sin() * 0.5 + 0.5;
+        let strength = if aiming { 0.45 + 0.30 * pulse } else { 0.25 + 0.20 * pulse };
+        style::halo(r, 10.0 * u, 10.0 * u, VIOLET, strength);
+        style::round_outline(r, 10.0 * u, (2.0 * u).max(1.5), alpha(VIOLET, 0.75 + 0.25 * pulse));
+    }
     let pad = (p.cell * 0.3).max(7.0 * u);
     let label = label_size(p, u);
     let inner_w = r.w - 2.0 * pad;
@@ -204,7 +218,11 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
         // Score big in the middle, level and lines under it.
         let cx = r.center().x;
         let score_size = fit_size(&score, (r.h * 0.42).min(p.cell * 1.3), inner_w);
-        let sub = format!("LEVEL {level}   LINES {lines}");
+        let sub = if ghosts > 0 {
+            format!("LEVEL {level}   LINES {lines}   GHOST {ghosts}")
+        } else {
+            format!("LEVEL {level}   LINES {lines}")
+        };
         let sub_size = fit_size(&sub, label, inner_w);
         let total = label + score_size + sub_size + pad * 0.6;
         let mut y = r.y + (r.h - total) / 2.0;
@@ -249,10 +267,15 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
             y += bar_h + pad * 0.8;
         }
     }
-    if game.ghost_blocks_available > 0 && y + label <= r.bottom() - pad * 0.3 {
-        let text = format!("GHOST BLOCKS {}", game.ghost_blocks_available);
+    if ghosts > 0 && y + label <= r.bottom() - pad * 0.3 {
+        let text = format!("GHOST BLOCKS {ghosts}");
         draw_text(&text, x, y + label * 0.8, fit_size(&text, label, inner_w), VIOLET);
-        y += label + pad * 0.6;
+        y += label + pad * 0.3;
+        let tip = if game.ghost_block_placement_mode { "TAP TO THROW" } else { "TAP TO AIM" };
+        if y + label <= r.bottom() - pad * 0.3 {
+            draw_text(tip, x, y + label * 0.8, fit_size(tip, label * 0.85, inner_w), style::mix(VIOLET, WHITE, 0.45));
+            y += label + pad * 0.6;
+        }
     }
 
     // Time, at the bottom of the panel when it's tall enough.
@@ -269,6 +292,21 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32) {
 fn centered(text: &str, cx: f32, baseline: f32, size: f32, color: Color) {
     let w = measure_text(text, None, size.max(1.0) as u16, 1.0).width;
     draw_text(text, cx - w / 2.0, baseline, size, color);
+}
+
+/// While aiming a ghost block: how to throw it, across the top of the board.
+fn draw_aim_banner(p: &PlayLayout, u: f32) {
+    let b = p.board;
+    let lines = ["TAP A CELL TO AIM", "TAP IT AGAIN TO THROW"];
+    let w = b.w * 0.92;
+    let size = fit_size(lines[1], (p.cell * 0.55).max(11.0 * u), w * 0.86);
+    let h = size * 3.4;
+    let r = Rect::new(b.x + (b.w - w) / 2.0, b.y + p.cell * 0.4, w, h);
+    let radius = 10.0 * u;
+    style::round_rect(r, radius, Color::new(0.13, 0.10, 0.34, 0.88), Color::new(0.06, 0.04, 0.18, 0.88));
+    style::round_outline(r, radius, (1.5 * u).max(1.0), alpha(VIOLET, 0.85));
+    centered(lines[0], r.center().x, r.y + size * 1.35, size, VIOLET);
+    centered(lines[1], r.center().x, r.y + size * 2.75, size, VALUE);
 }
 
 /// The first game's reminder of the gestures, over the lower part of the board.
