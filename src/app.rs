@@ -158,6 +158,7 @@ pub async fn run() {
     // Main application loop
     loop {
         let delta_time = get_frame_time();
+        crate::graphics::text::begin_frame();
 
         // Fit the canvas to the screen (it may have rotated or unfolded) and read touches before
         // anything reads input.
