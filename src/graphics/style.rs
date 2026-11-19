@@ -200,3 +200,64 @@ pub fn ghost_block(x: f32, y: f32, size: f32, color: Color) {
     round_rect(r, radius, alpha(color, 0.22), alpha(color, 0.10));
     round_outline(r, radius, (size * 0.07).max(1.0), mix(color, WHITE, 0.35).with_alpha(0.75));
 }
+
+// The legacy look: green terminal text on black, to go with the legacy board.
+
+/// The legacy board's green: borders, blocks and values.
+pub const TERM_GREEN: Color = Color::new(0.0, 1.0, 0.0, 1.0);
+/// Labels and quieter text in the legacy look.
+pub const TERM_DIM: Color = Color::new(0.0, 0.62, 0.0, 1.0);
+
+/// The legacy board's block glyph (drawn as an outlined box), `size` pixels square at (x, y),
+/// placed in its square the way the board places it.
+pub fn term_block(x: f32, y: f32, size: f32, color: Color) {
+    crate::graphics::text::draw_text("█", x + size * 0.25, y + size * 0.7, size * 0.8, color);
+}
+
+/// A legacy-look box: black (`fill` opaque), with a thin edge (buttons, banners).
+pub fn term_box(r: Rect, edge: Color, fill: f32, u: f32) {
+    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.0, 0.0, 0.0, fill));
+    // Whole pixels (macroquad's draw_rectangle_lines draws half the thickness asked for, and a
+    // sub-pixel edge can vanish).
+    let t = (1.5 * u).round().max(1.0);
+    let (x, y, w, h) = (r.x.round(), r.y.round(), r.w.round(), r.h.round());
+    draw_rectangle(x, y, w, t, edge);
+    draw_rectangle(x, y + h - t, w, t, edge);
+    draw_rectangle(x, y + t, t, h - 2.0 * t, edge);
+    draw_rectangle(x + w - t, y + t, t, h - 2.0 * t, edge);
+}
+
+/// A legacy-look frame in the board's style: `<== LABEL ====>` across the top of `r` and
+/// `<=======>` across the bottom, in `size` text, over black. Returns the part of `r` between
+/// them.
+pub fn term_frame(r: Rect, label: &str, size: f32, rule: Color, label_color: Color) -> Rect {
+    use crate::graphics::text::{draw_text, measure_text};
+    draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.0, 0.0, 0.0, 0.85));
+    // The font is monospaced: the rules are whole characters, centred.
+    let char_w = measure_text("=", None, 1, size).width.max(1.0);
+    let n = ((r.w / char_w).floor() as usize).max(4);
+    let x = r.x + (r.w - n as f32 * char_w) / 2.0;
+    let top = r.y + size * 0.8;
+    if label.is_empty() || n < label.chars().count() + 7 {
+        draw_text(&format!("<{}>", "=".repeat(n - 2)), x, top, size, rule);
+    } else {
+        // "<== " LABEL " ====>"
+        let head = 4;
+        let tail = n - head - label.chars().count();
+        draw_text("<== ", x, top, size, rule);
+        draw_text(label, x + head as f32 * char_w, top, size, label_color);
+        let after = x + (n - tail) as f32 * char_w;
+        draw_text(&format!(" {}>", "=".repeat(tail - 2)), after, top, size, rule);
+    }
+    draw_text(&format!("<{}>", "=".repeat(n - 2)), x, r.bottom() - size * 0.25, size, rule);
+    Rect::new(r.x, r.y + size, r.w, (r.h - 2.0 * size).max(0.0))
+}
+
+/// `[#####.......]` across `w` pixels in `size` text, `done` (0..1) of it filled.
+pub fn term_bar(x: f32, baseline: f32, w: f32, size: f32, done: f32, color: Color) {
+    use crate::graphics::text::{draw_text, measure_text};
+    let char_w = measure_text("#", None, 1, size).width.max(1.0);
+    let n = ((w / char_w).floor() as usize).saturating_sub(2).max(1);
+    let filled = ((done.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);
+    draw_text(&format!("[{}{}]", "#".repeat(filled), ".".repeat(n - filled)), x, baseline, size, color);
+}
