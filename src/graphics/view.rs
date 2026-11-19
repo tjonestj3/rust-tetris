@@ -51,17 +51,18 @@ pub struct Layout {
 
 impl Layout {
     /// Lay out the current screen, fitting `canvas_src` (a part of the canvas) to the safe area.
-    pub fn compute(canvas_src: Rect) -> Self {
+    /// `around`: room to leave around the board while playing (see [`Margins`]).
+    pub fn compute(canvas_src: Rect, around: Margins) -> Self {
         let (w, h) = (screen_width(), screen_height());
         let unit = points_scale();
         let (top, left, bottom, right) = usable_insets(safe_insets(), w, h);
         let screen = Rect::new(0.0, 0.0, w, h);
         let safe = Rect::new(left * unit, top * unit, w - (left + right) * unit, h - (top + bottom) * unit);
-        Self::for_screen(screen, safe, unit, canvas_src)
+        Self::for_screen(screen, safe, unit, canvas_src, around)
     }
 
     /// The layout for a given screen (separate from [`Layout::compute`] for tests).
-    pub fn for_screen(screen: Rect, safe: Rect, unit: f32, canvas_src: Rect) -> Self {
+    pub fn for_screen(screen: Rect, safe: Rect, unit: f32, canvas_src: Rect, around: Margins) -> Self {
         let game = fit(canvas_src, safe);
         Self {
             screen,
@@ -70,7 +71,7 @@ impl Layout {
             canvas_src,
             game,
             scale: game.w / canvas_src.w,
-            play: PlayLayout::compute(safe, unit),
+            play: PlayLayout::compute(safe, unit, around),
         }
     }
 
@@ -106,6 +107,8 @@ pub struct PlayLayout {
     pub style: HudStyle,
     /// The board (10 x 20 cells, whole pixels per cell).
     pub board: Rect,
+    /// The board and the room left around it (the same as `board` unless asked for).
+    pub frame: Rect,
     /// One cell, in pixels.
     pub cell: f32,
     pub next: Rect,
@@ -116,6 +119,16 @@ pub struct PlayLayout {
     pub gap: f32,
 }
 
+/// Room around the board, in cells, for drawing that goes past its edges (the legacy look's
+/// borders): kept clear of the panels and inside the safe area.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Margins {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
 /// Side column width, in cells (fits a 4-block piece at 0.8 of a cell plus padding).
 const COLUMN_CELLS: f32 = 5.2;
 /// Panel heights, in cells.
@@ -123,10 +136,12 @@ const PIECE_PANEL_CELLS: f32 = 3.6;
 const STRIP_CELLS: f32 = 3.4;
 
 impl PlayLayout {
-    pub fn compute(safe: Rect, unit: f32) -> Self {
+    pub fn compute(safe: Rect, unit: f32, around: Margins) -> Self {
         let m = 10.0 * unit; // margins and gaps
         let min_col = 96.0 * unit; // narrowest side column that still reads well
-        let (cols, rows) = (BOARD_WIDTH as f32, VISIBLE_HEIGHT as f32);
+        // Everything is laid out around the board's frame: the board and the room around it.
+        let cols = BOARD_WIDTH as f32 + around.left + around.right;
+        let rows = VISIBLE_HEIGHT as f32 + around.top + around.bottom;
         let by_height = (safe.h - 2.0 * m) / rows;
 
         // The biggest cell each arrangement allows.
@@ -150,44 +165,53 @@ impl PlayLayout {
         let cell = cell.floor().max(4.0);
         let (bw, bh) = (cell * cols, cell * rows);
         let pause_size = (44.0 * unit).min(cell * 2.2).max(28.0 * unit);
+        // The board inside its frame.
+        let inside = |frame: Rect| {
+            Rect::new(
+                (frame.x + cell * around.left).round(),
+                (frame.y + cell * around.top).round(),
+                cell * BOARD_WIDTH as f32,
+                cell * VISIBLE_HEIGHT as f32,
+            )
+        };
 
-        match style {
+        let (frame, next, hold, stats, pause) = match style {
             HudStyle::OneColumn => {
                 let col_w = (safe.w - bw - 3.0 * m).min(cell * 7.0);
                 let group_w = bw + m + col_w;
                 let x = (safe.x + (safe.w - group_w) / 2.0).round();
                 let y = (safe.y + (safe.h - bh) / 2.0).round();
-                let board = Rect::new(x, y, bw, bh);
-                let cx = board.right() + m;
+                let frame = Rect::new(x, y, bw, bh);
+                let cx = frame.right() + m;
                 let ph = cell * PIECE_PANEL_CELLS;
                 let next = Rect::new(cx, y, col_w, ph);
                 let hold = Rect::new(cx, next.bottom() + m, col_w, ph);
-                let pause = Rect::new(cx + col_w - pause_size, board.bottom() - pause_size, pause_size, pause_size);
+                let pause = Rect::new(cx + col_w - pause_size, frame.bottom() - pause_size, pause_size, pause_size);
                 // Down to the pause button: score, level / lines, and time at the bottom.
                 let stats = Rect::new(cx, hold.bottom() + m, col_w, pause.y - m - (hold.bottom() + m));
-                Self { style, board, cell, next, hold, stats, pause, gap: m }
+                (frame, next, hold, stats, pause)
             }
             HudStyle::TwoColumns => {
                 let col_w = ((safe.w - bw - 4.0 * m) / 2.0).min(cell * 8.0);
                 let x = (safe.x + (safe.w - bw) / 2.0).round();
                 let y = (safe.y + (safe.h - bh) / 2.0).round();
-                let board = Rect::new(x, y, bw, bh);
+                let frame = Rect::new(x, y, bw, bh);
                 let ph = cell * PIECE_PANEL_CELLS;
-                let lx = board.x - m - col_w;
-                let rx = board.right() + m;
+                let lx = frame.x - m - col_w;
+                let rx = frame.right() + m;
                 let hold = Rect::new(lx, y, col_w, ph);
                 // Down to the bottom of the board: score, level / lines, and time at the bottom.
-                let stats = Rect::new(lx, hold.bottom() + m, col_w, board.bottom() - (hold.bottom() + m));
+                let stats = Rect::new(lx, hold.bottom() + m, col_w, frame.bottom() - (hold.bottom() + m));
                 let next = Rect::new(rx, y, col_w, ph);
-                let pause = Rect::new(rx + col_w - pause_size, board.bottom() - pause_size, pause_size, pause_size);
-                Self { style, board, cell, next, hold, stats, pause, gap: m }
+                let pause = Rect::new(rx + col_w - pause_size, frame.bottom() - pause_size, pause_size, pause_size);
+                (frame, next, hold, stats, pause)
             }
             HudStyle::TopStrip => {
                 let sh = (cell * STRIP_CELLS).round();
                 let total_h = sh + m + bh;
                 let x = (safe.x + (safe.w - bw) / 2.0).round();
                 let y0 = (safe.y + (safe.h - total_h) / 2.0).round();
-                let board = Rect::new(x, y0 + sh + m, bw, bh);
+                let frame = Rect::new(x, y0 + sh + m, bw, bh);
                 // Hold | score | Next | pause, the score getting what's left (at least ~40%).
                 let g = m * 0.6;
                 let pause_w = pause_size.min(sh);
@@ -196,10 +220,11 @@ impl PlayLayout {
                 let hold = Rect::new(x, y0, piece_w, sh);
                 let stats = Rect::new(hold.right() + g, y0, avail - 2.0 * piece_w, sh);
                 let next = Rect::new(stats.right() + g, y0, piece_w, sh);
-                let pause = Rect::new(board.right() - pause_w, y0 + (sh - pause_w) / 2.0, pause_w, pause_w);
-                Self { style, board, cell, next, hold, stats, pause, gap: m }
+                let pause = Rect::new(frame.right() - pause_w, y0 + (sh - pause_w) / 2.0, pause_w, pause_w);
+                (frame, next, hold, stats, pause)
             }
-        }
+        };
+        Self { style, board: inside(frame), frame, cell, next, hold, stats, pause, gap: m }
     }
 }
 
@@ -319,7 +344,7 @@ mod tests {
     use super::*;
 
     fn play(w: f32, h: f32) -> PlayLayout {
-        PlayLayout::compute(Rect::new(0.0, 0.0, w, h), 1.0)
+        PlayLayout::compute(Rect::new(0.0, 0.0, w, h), 1.0, Margins::default())
     }
 
     fn inside(r: Rect, area: Rect) -> bool {
@@ -332,8 +357,10 @@ mod tests {
             assert!(inside(r, area), "{name} {r:?} outside {w}x{h} ({:?})", p.style);
             assert!(r.w > 0.0 && r.h > 0.0, "{name} empty: {r:?}");
         }
+        assert!(inside(p.frame, area), "frame {:?} outside {w}x{h}", p.frame);
+        assert!(inside(p.board, p.frame), "board {:?} outside its frame {:?}", p.board, p.frame);
         for (name, r) in [("next", p.next), ("hold", p.hold), ("stats", p.stats), ("pause", p.pause)] {
-            assert!(!r.overlaps(&p.board), "{name} {r:?} overlaps the board {:?}", p.board);
+            assert!(!r.overlaps(&p.frame), "{name} {r:?} overlaps the board's frame {:?}", p.frame);
         }
         assert_eq!(p.board.w, p.cell * 10.0);
         assert_eq!(p.board.h, p.cell * 20.0);
@@ -381,10 +408,22 @@ mod tests {
     }
 
     #[test]
+    fn room_around_the_board_stays_clear_of_the_panels() {
+        // About what the legacy look's borders need.
+        let around = Margins { left: 1.35, top: 0.8, right: 1.25, bottom: 1.4 };
+        for (w, h) in [(458.0, 574.0), (568.0, 449.0), (390.0, 751.0), (744.0, 369.0), (1024.0, 1300.0)] {
+            let p = PlayLayout::compute(Rect::new(0.0, 0.0, w, h), 1.0, around);
+            assert_sane(&p, w, h);
+            assert!((p.board.x - p.frame.x - around.left * p.cell).abs() <= 0.5, "{p:?}");
+            assert!((p.board.y - p.frame.y - around.top * p.cell).abs() <= 0.5, "{p:?}");
+        }
+    }
+
+    #[test]
     fn menu_taps_map_back_to_the_canvas() {
         let src = Rect::new(150.0, 60.0, 600.0, 600.0);
         let screen = Rect::new(0.0, 0.0, 400.0, 800.0);
-        let l = Layout::for_screen(screen, screen, 1.0, src);
+        let l = Layout::for_screen(screen, screen, 1.0, src, Margins::default());
         let c = l.screen_to_canvas(l.game.center()).unwrap();
         assert!((c - src.center()).length() < 0.01, "{c:?}");
     }
