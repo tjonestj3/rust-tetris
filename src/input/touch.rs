@@ -423,7 +423,7 @@ mod tests {
     /// A 900x750 screen: a 36 px cell, so a sideways step is 30 px (the cap).
     fn layout() -> Layout {
         let r = Rect::new(0.0, 0.0, 900.0, 750.0);
-        Layout::for_screen(r, r, 1.0, crate::graphics::view::FULL_CANVAS)
+        Layout::for_screen(r, r, 1.0, crate::graphics::view::FULL_CANVAS, Default::default())
     }
 
     /// Feed frames of (time, fingers as (id, x, y, new, ended)); return each frame's gestures.

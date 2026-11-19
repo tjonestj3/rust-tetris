@@ -804,6 +804,7 @@ dependencies = [
  "chrono",
  "config",
  "env_logger",
+ "fontdue",
  "log",
  "macroquad",
  "objc-rs",

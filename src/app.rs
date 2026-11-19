@@ -7,10 +7,16 @@ use crate::game::{Game, GameState};
 use crate::tetromino::{Tetromino, TetrominoType};
 use crate::audio::system::{AudioSystem, SoundType};
 use crate::{MenuSystem, MenuAction};
-use crate::graphics::view::{map_camera, Layout, FULL_CANVAS};
+use crate::graphics::view::{map_camera, Layout, Margins, FULL_CANVAS};
 use crate::input::touch::{self, key_down, key_pressed, Mode};
 
 mod touch_view;
+
+/// The longest frame time the game is given, in seconds: a slow frame slows the game down a
+/// little instead of skipping it ahead.
+const MAX_FRAME: f32 = 0.1;
+/// A frame longer than this (seconds) means the app was away, e.g. in the background.
+const AWAY_FRAME: f32 = 0.5;
 
 /// Game application state
 #[derive(Debug, PartialEq)]
@@ -155,9 +161,18 @@ pub async fn run() {
         simulate_mouse_with_touch(false);
     }
 
+    // The first frame's time includes loading everything: it's not time away.
+    let mut first_frame = true;
+
     // Main application loop
     loop {
-        let delta_time = get_frame_time();
+        // A long frame means the app was away (in the background, the screen locked): that time
+        // doesn't pass in the game (a falling piece would be force-locked where it hung), and a
+        // game in play is paused for when the player comes back.
+        let frame_time = get_frame_time();
+        let came_back = frame_time > AWAY_FRAME && !std::mem::take(&mut first_frame);
+        let delta_time = frame_time.min(MAX_FRAME);
+        crate::graphics::text::begin_frame();
 
         // Fit the canvas to the screen (it may have rotated or unfolded) and read touches before
         // anything reads input.
@@ -166,7 +181,12 @@ pub async fn run() {
             AppState::Menu | AppState::GameOver if touch_mode => menu_system.content_bounds(),
             _ => FULL_CANVAS,
         };
-        let layout = Layout::compute(canvas_src);
+        // The legacy board's borders go past the board: leave room for them.
+        let around = match &game {
+            Some(g) if touch_mode && g.is_legacy_mode() => legacy_board_margins(),
+            _ => Margins::default(),
+        };
+        let layout = Layout::compute(canvas_src, around);
         if touch_mode {
             let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system);
             touch::begin_frame(&layout, mode);
@@ -252,6 +272,11 @@ pub async fn run() {
                     let was_clearing_lines = current_game.is_clearing_lines();
                     let prev_state = current_game.state;
                     
+                    if came_back && current_game.state == GameState::Playing {
+                        log::info!("Back after {frame_time:.1}s away: pausing");
+                        current_game.toggle_pause();
+                    }
+
                     // Update game logic
                     current_game.update(delta_time as f64);
                     
@@ -2352,6 +2377,35 @@ fn draw_legacy_ghost_piece(ghost_piece: &Tetromino) {
     }
 }
 
+/// The legacy board's borders, and where they are around the board, in cells: they start
+/// `LEGACY_LEFT` left of it, the `>`s are `LEGACY_RIGHT` right of it, and the top border's and
+/// the zigzag's baselines are `LEGACY_TOP` above and `LEGACY_BELOW` below it.
+const LEGACY_BORDER: &str = "<================================>";
+const LEGACY_ZIGZAG: &str = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+const LEGACY_LEFT: f32 = 1.2;
+const LEGACY_RIGHT: f32 = 0.7;
+const LEGACY_TOP: f32 = 0.3;
+const LEGACY_BELOW: f32 = 0.9;
+/// The legacy board's font size.
+const LEGACY_TEXT: f32 = CELL_SIZE * 0.8;
+
+/// How far the legacy board's borders reach past the board, in cells, so the touch layout can
+/// leave room for them.
+pub(crate) fn legacy_board_margins() -> Margins {
+    let cells = |units: f32| units / CELL_SIZE;
+    let measure = |text: &str| measure_text(text, None, 1, LEGACY_TEXT);
+    let (border, zigzag, arrow) = (measure(LEGACY_BORDER), measure(LEGACY_ZIGZAG), measure(">"));
+    let widest = cells(border.width.max(zigzag.width)) - LEGACY_LEFT - BOARD_WIDTH as f32;
+    // A little over, as text is measured at whatever size the screen shows it.
+    let spare = 0.15;
+    Margins {
+        left: LEGACY_LEFT + spare,
+        top: LEGACY_TOP + cells(border.offset_y) + spare,
+        right: (LEGACY_RIGHT + cells(arrow.width)).max(widest) + spare,
+        bottom: LEGACY_BELOW + cells(zigzag.height - zigzag.offset_y) + spare,
+    }
+}
+
 /// Draw authentic terminal-style Tetris board like the original
 fn draw_legacy_board_with_data(board: &Board) {
     let terminal_green = Color::new(0.0, 1.0, 0.0, 1.0); // Bright terminal green
@@ -2361,14 +2415,13 @@ fn draw_legacy_board_with_data(board: &Board) {
     let board_start_y = BOARD_OFFSET_Y;
     let char_width = CELL_SIZE; // Same width as modern cells
     let char_height = CELL_SIZE; // Same height as modern cells
-    let char_size = CELL_SIZE * 0.8; // Font size relative to cell size
+    let char_size = LEGACY_TEXT;
     
     // Draw ASCII art border like original - top (with proper spacing)
-    let top_border = "<================================>";
     draw_text(
-        top_border,
-        board_start_x - char_width * 1.2,
-        board_start_y - char_height * 0.3,
+        LEGACY_BORDER,
+        board_start_x - char_width * LEGACY_LEFT,
+        board_start_y - char_height * LEGACY_TOP,
         char_size,
         terminal_green,
     );
@@ -2378,7 +2431,7 @@ fn draw_legacy_board_with_data(board: &Board) {
         // Left border (moved further from board content)
         draw_text(
             "<",
-            board_start_x - char_width * 1.2,
+            board_start_x - char_width * LEGACY_LEFT,
             board_start_y + (y as f32 * char_height) + char_height * 0.7,
             char_size,
             terminal_green,
@@ -2427,7 +2480,7 @@ fn draw_legacy_board_with_data(board: &Board) {
         // Right border (moved further from board content)
         draw_text(
             ">",
-            board_start_x + (BOARD_WIDTH as f32 * char_width) + char_width * 0.7,
+            board_start_x + (BOARD_WIDTH as f32 * char_width) + char_width * LEGACY_RIGHT,
             board_start_y + (y as f32 * char_height) + char_height * 0.7,
             char_size,
             terminal_green,
@@ -2435,21 +2488,19 @@ fn draw_legacy_board_with_data(board: &Board) {
     }
     
     // Bottom border (with proper spacing)
-    let bottom_border = "<================================>";
     draw_text(
-        bottom_border,
-        board_start_x - char_width * 1.2,
+        LEGACY_BORDER,
+        board_start_x - char_width * LEGACY_LEFT,
         board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.3,
         char_size,
         terminal_green,
     );
     
     // Bottom zigzag like original (with proper spacing)
-    let zigzag = "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
     draw_text(
-        zigzag,
-        board_start_x - char_width * 1.2,
-        board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * 0.9,
+        LEGACY_ZIGZAG,
+        board_start_x - char_width * LEGACY_LEFT,
+        board_start_y + (VISIBLE_HEIGHT as f32 * char_height) + char_height * LEGACY_BELOW,
         char_size,
         terminal_green,
     );
