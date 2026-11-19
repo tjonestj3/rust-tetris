@@ -181,11 +181,9 @@ pub async fn run() {
             AppState::Menu | AppState::GameOver if touch_mode => menu_system.content_bounds(),
             _ => FULL_CANVAS,
         };
-        // The legacy board's borders go past the board: leave room for them.
-        let around = match &game {
-            Some(g) if touch_mode && g.is_legacy_mode() => legacy_board_margins(),
-            _ => Margins::default(),
-        };
+        // The legacy board's borders go past the board: leave room for them. On touch the room is
+        // kept in both looks, so the board stays the same size and place when the look changes.
+        let around = if touch_mode { legacy_board_margins() } else { Margins::default() };
         let layout = Layout::compute(canvas_src, around);
         if touch_mode {
             let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system);
