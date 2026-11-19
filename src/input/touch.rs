@@ -31,8 +31,8 @@ pub enum Mode {
     None,
     /// Menus: taps on the canvas.
     Menu,
-    /// Playing: gestures, plus the pause icon.
-    Game,
+    /// Playing: gestures, plus the pause icon (`legacy`: the game is in the legacy look).
+    Game { legacy: bool },
     /// Paused: Resume / Legacy / Menu buttons (`legacy`: the game is in the legacy look).
     Paused { legacy: bool },
     /// Typing a high score name (the iOS keyboard is up).
@@ -97,6 +97,8 @@ struct Button {
     rect: Rect,
     key: KeyCode,
     label: &'static str,
+    /// Drawn in the legacy look (green on black).
+    legacy: bool,
 }
 
 #[derive(Default)]
@@ -180,7 +182,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
                 s.gesture = None;
                 s.canvas_tap = fresh.first().and_then(|f| layout.screen_to_canvas(f.pos));
             }
-            Mode::Game => track_gesture(&mut s, layout, &fingers, &fresh, now),
+            Mode::Game { .. } => track_gesture(&mut s, layout, &fingers, &fresh, now),
             Mode::Paused { .. } | Mode::None => s.gesture = None,
         }
     });
@@ -344,17 +346,17 @@ fn board_cell(layout: &Layout, pos: Vec2) -> Option<(i32, i32)> {
 
 fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
     let u = layout.unit;
-    match mode {
-        Mode::Game => {
+    let mut buttons = match mode {
+        Mode::Game { .. } => {
             // Their places in the HUD (graphics::view::PlayLayout). The HOLD and score panels are
             // drawn by app::touch_view; shrunk by the slack taps get, so a tap just off one still
             // isn't one. The score panel is B: aim a ghost block, then throw it.
             let slack = BUTTON_SLACK * u;
             let shrink = |r: Rect| Rect::new(r.x + slack, r.y + slack, (r.w - 2.0 * slack).max(0.0), (r.h - 2.0 * slack).max(0.0));
             vec![
-                Button { rect: layout.play.pause, key: KeyCode::P, label: "II" },
-                Button { rect: shrink(layout.play.hold), key: KeyCode::C, label: PANEL },
-                Button { rect: shrink(layout.play.stats), key: KeyCode::B, label: PANEL },
+                button(layout.play.pause, KeyCode::P, "II"),
+                button(shrink(layout.play.hold), KeyCode::C, PANEL),
+                button(shrink(layout.play.stats), KeyCode::B, PANEL),
             ]
         }
         Mode::Paused { legacy } => {
@@ -366,17 +368,21 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
             let cy = layout.safe.y + layout.safe.h * 0.8;
             let (left, low) = (cx - w / 2.0, cy + gap / 2.0);
             vec![
-                Button { rect: Rect::new(left, cy - h - gap / 2.0, w, h), key: KeyCode::P, label: "RESUME" },
-                Button {
-                    rect: Rect::new(left, low, half, h),
-                    key: KeyCode::L,
-                    label: if legacy { LEGACY_ON } else { LEGACY_OFF },
-                },
-                Button { rect: Rect::new(left + half + gap, low, half, h), key: KeyCode::Escape, label: "MENU" },
+                button(Rect::new(left, cy - h - gap / 2.0, w, h), KeyCode::P, "RESUME"),
+                button(Rect::new(left, low, half, h), KeyCode::L, if legacy { LEGACY_ON } else { LEGACY_OFF }),
+                button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
         _ => Vec::new(),
+    };
+    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } = mode {
+        buttons.iter_mut().for_each(|b| b.legacy = true);
     }
+    buttons
+}
+
+fn button(rect: Rect, key: KeyCode, label: &'static str) -> Button {
+    Button { rect, key, label, legacy: false }
 }
 
 fn grow(r: Rect, by: f32) -> Rect {
@@ -387,9 +393,9 @@ fn draw_button(b: &Button, u: f32) {
     if b.label == PANEL {
         return;
     }
-    use crate::graphics::style::{self, CYAN, GOLD, GREEN, INK, PINK, VIOLET};
+    use crate::graphics::style::{self, CYAN, GOLD, GREEN, INK, PINK, TERM_GREEN, VIOLET};
     let r = b.rect;
-    let ink = INK;
+    let ink = if b.legacy { TERM_GREEN } else { INK };
     let accent = match b.label {
         "II" => PINK,
         "MENU" => CYAN,
@@ -397,7 +403,11 @@ fn draw_button(b: &Button, u: f32) {
         LEGACY_OFF => VIOLET,
         _ => GOLD,
     };
-    style::panel(r, accent, u);
+    if b.legacy {
+        style::term_box(r, TERM_GREEN, 0.9, u);
+    } else {
+        style::panel(r, accent, u);
+    }
     let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     if b.label == "II" {
         // Two bars, not text: crisper.

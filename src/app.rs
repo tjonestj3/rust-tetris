@@ -62,7 +62,7 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) 
         },
         AppState::Playing => match game {
             Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
-            Some(g) if g.state == GameState::Playing => Mode::Game,
+            Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
             _ => Mode::None,
         },
     }
