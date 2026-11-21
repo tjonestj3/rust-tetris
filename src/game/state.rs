@@ -97,6 +97,11 @@ pub struct Game {
     
     /// Track if the last successful action was a rotation (for T-spin detection)
     pub last_action_was_rotation: bool,
+
+    /// Whether the last piece locked was a T-spin. Worked out at the lock, while the piece is
+    /// still there to look at; scored when its lines clear.
+    #[serde(default)]
+    pub lock_was_t_spin: bool,
     
     /// Super Rotation System for handling piece rotation with wall kicks
     pub rotation_system: SRSRotationSystem,
@@ -148,6 +153,7 @@ impl Game {
             
             legacy_mode: false, // Start in modern mode by default
             last_action_was_rotation: false,
+            lock_was_t_spin: false,
             
             rotation_system: SRSRotationSystem::new(),
             scoring_system: TetrisScoring::new(),
@@ -271,6 +277,7 @@ impl Game {
     
     /// Lock the current piece to the board and spawn a new one
     pub fn lock_current_piece(&mut self) {
+        self.lock_was_t_spin = self.is_t_spin();
         if let Some(piece) = self.current_piece.take() {
             // Debug logging for piece locking
             log::debug!("Locking piece {:?} at position ({}, {}) after {:.2}s lifetime, {} lock resets",
@@ -299,6 +306,8 @@ impl Game {
                 self.start_line_clear_animation(complete_lines);
                 return; // Don't spawn next piece until animation is done
             }
+            // No clear: scored too, which ends a combo.
+            self.add_score_for_lines(0);
             
             // Check game over
             if self.board.is_game_over() {
@@ -354,7 +363,7 @@ impl Game {
         let level = self.board.level();
         
         // Determine if this was a T-spin and what type
-        let is_t_spin = self.is_t_spin();
+        let is_t_spin = self.lock_was_t_spin;
         let is_mini_t_spin = false; // TODO: Implement mini T-spin detection later
         
         // Determine line clear type
@@ -519,6 +528,11 @@ impl Game {
                 drop_distance += 1;
             }
             
+            // Moved since any rotation, so it can't be a T-spin.
+            if drop_distance > 0 {
+                self.last_action_was_rotation = false;
+            }
+
             // Add hard drop points through enhanced scoring system
             self.scoring_system.add_drop_points((drop_distance as u32) * SCORE_HARD_DROP);
             self.score = self.scoring_system.total_score();

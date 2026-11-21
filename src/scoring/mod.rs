@@ -169,6 +169,27 @@ pub struct TetrisScoring {
     pub back_to_back_ready: bool,
     /// Total score accumulated
     pub total_score: u32,
+    /// Line clears processed so far (so the app can tell a new one happened).
+    #[serde(default)]
+    pub clears: u32,
+    /// Pieces locked so far: every lock is either a clear or not.
+    #[serde(default)]
+    pub pieces: u32,
+    /// The most recent clear.
+    #[serde(default)]
+    pub last_clear: Option<ClearRecord>,
+}
+
+/// What a line clear was, for haptics, stats and callouts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClearRecord {
+    pub kind: LineClearType,
+    /// Clears in a row before this one: 0 for the first, 1 for "combo 1", and so on.
+    pub chain: u32,
+    /// A difficult clear right after another one (back-to-back bonus).
+    pub back_to_back: bool,
+    /// The board was left empty.
+    pub perfect: bool,
 }
 
 impl Default for TetrisScoring {
@@ -184,6 +205,9 @@ impl TetrisScoring {
             combo_count: 0,
             back_to_back_ready: false,
             total_score: 0,
+            clears: 0,
+            pieces: 0,
+            last_clear: None,
         }
     }
     
@@ -234,7 +258,15 @@ impl TetrisScoring {
     
     /// Process a line clear and update internal state
     pub fn process_line_clear(&mut self, action: ScoringAction) -> ScoringResult {
-        let result = self.calculate_score(action);
+        let result = self.calculate_score(action.clone());
+        self.clears += 1;
+        self.pieces += 1;
+        self.last_clear = Some(ClearRecord {
+            kind: action.line_clear_type,
+            chain: self.combo_count,
+            back_to_back: result.back_to_back_bonus > 0,
+            perfect: action.perfect_clear.is_some(),
+        });
         
         // Update internal state
         self.combo_count = result.new_combo;
@@ -246,6 +278,7 @@ impl TetrisScoring {
     
     /// Process a piece placement with no line clear (breaks combo)
     pub fn process_no_line_clear(&mut self) {
+        self.pieces += 1;
         self.combo_count = 0;
         // back_to_back_ready status is preserved (only reset by non-difficult moves)
     }
@@ -280,11 +313,24 @@ impl TetrisScoring {
         self.total_score += points;
     }
     
+    /// Line clears processed so far.
+    pub fn clears(&self) -> u32 {
+        self.clears
+    }
+
+    /// Pieces locked so far.
+    pub fn pieces(&self) -> u32 {
+        self.pieces
+    }
+
+    /// The most recent clear.
+    pub fn last_clear(&self) -> Option<ClearRecord> {
+        self.last_clear
+    }
+
     /// Reset the scoring system (for new game)
     pub fn reset(&mut self) {
-        self.combo_count = 0;
-        self.back_to_back_ready = false;
-        self.total_score = 0;
+        *self = Self::new();
     }
 }
 
@@ -439,5 +485,58 @@ mod tests {
         assert_eq!(determine_line_clear_type(2, true, false), Some(LineClearType::TSpinDouble));
         assert_eq!(determine_line_clear_type(1, true, true), Some(LineClearType::TSpinMiniSingle));
         assert_eq!(determine_line_clear_type(0, false, false), None);
+    }
+    fn clear(kind: LineClearType, perfect: bool) -> ScoringAction {
+        ScoringAction {
+            line_clear_type: kind,
+            perfect_clear: if perfect { PerfectClearDetector::determine_perfect_clear_type(kind.lines_cleared()) } else { None },
+            level: 1,
+            combo: 0,
+            back_to_back: kind.is_difficult(),
+        }
+    }
+
+    #[test]
+    fn records_each_clear() {
+        let mut scoring = TetrisScoring::new();
+        assert_eq!((scoring.clears(), scoring.pieces(), scoring.last_clear()), (0, 0, None));
+        scoring.process_line_clear(clear(LineClearType::Double, false));
+        assert_eq!(scoring.clears(), 1);
+        assert_eq!(scoring.last_clear().map(|c| (c.kind, c.chain)), Some((LineClearType::Double, 0)));
+        scoring.process_line_clear(clear(LineClearType::Single, false));
+        assert_eq!(scoring.clears(), 2);
+        assert_eq!(scoring.pieces(), 2);
+        assert_eq!(scoring.last_clear().map(|c| (c.kind, c.chain)), Some((LineClearType::Single, 1)));
+    }
+
+    #[test]
+    fn no_clear_breaks_chain_and_counts_the_piece() {
+        let mut scoring = TetrisScoring::new();
+        scoring.process_line_clear(clear(LineClearType::Single, false));
+        scoring.process_no_line_clear();
+        assert_eq!(scoring.pieces(), 2);
+        assert_eq!(scoring.clears(), 1);
+        scoring.process_line_clear(clear(LineClearType::Single, false));
+        assert_eq!(scoring.last_clear().map(|c| c.chain), Some(0));
+    }
+
+    #[test]
+    fn perfect_and_back_to_back_recorded() {
+        let mut scoring = TetrisScoring::new();
+        scoring.process_line_clear(clear(LineClearType::Tetris, false));
+        let first = scoring.last_clear().unwrap();
+        assert!(!first.back_to_back && !first.perfect);
+        scoring.process_line_clear(clear(LineClearType::Tetris, true));
+        let second = scoring.last_clear().unwrap();
+        assert!(second.back_to_back, "{second:?}");
+        assert!(second.perfect, "{second:?}");
+    }
+
+    #[test]
+    fn old_save_deserializes() {
+        let old = r#"{"combo_count":2,"back_to_back_ready":true,"total_score":900}"#;
+        let scoring: TetrisScoring = serde_json::from_str(old).unwrap();
+        assert_eq!((scoring.clears(), scoring.pieces(), scoring.last_clear()), (0, 0, None));
+        assert_eq!(scoring.total_score(), 900);
     }
 }
