@@ -48,7 +48,13 @@ platform :ios do
     api_key_from_env # Also signs Spaceship's App Store Connect calls in.
     app = Spaceship::ConnectAPI::App.find(BUNDLE_ID)
     UI.user_error!("No app #{BUNDLE_ID} in App Store Connect") unless app
-    newest = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 1).first
+    # Usable builds only: a newer upload that failed processing doesn't stop the last good one
+    # from expiring. (No `limit:`: Build.all reads every page, so a small limit means more calls.)
+    newest = Spaceship::ConnectAPI::Build.all(
+      app_id: app.id,
+      processing_states: "PROCESSING,VALID",
+      sort: "-uploadedDate",
+    ).first
 
     age =
       if newest.nil?

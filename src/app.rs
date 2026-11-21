@@ -296,8 +296,9 @@ pub async fn run() {
                     let prev_score = current_game.score;
                     let prev_level = current_game.level();
                     let prev_lines_cleared = current_game.lines_cleared();
-                    let was_clearing_lines = current_game.is_clearing_lines();
-                    let prev_state = current_game.state;
+                    // From before input: a hard drop can start a clear or end the game.
+                    let was_clearing_lines = felt.clearing;
+                    let prev_state = felt.state;
                     
                     if came_back && current_game.state == GameState::Playing {
                         log::info!("Back after {frame_time:.1}s away: pausing");

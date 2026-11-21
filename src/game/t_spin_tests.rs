@@ -111,3 +111,49 @@ fn rotate_then_hard_drop_is_no_t_spin() {
 
     assert!(!game.lock_was_t_spin);
 }
+
+/// The same, but falling by gravity after the rotation: still moved, still no T-spin.
+#[test]
+fn rotate_then_fall_is_no_t_spin() {
+    let mut game = Game::new();
+    fill_row_except(&mut game, BOTTOM, &[0]);
+    fill_row_except(&mut game, BOTTOM - 1, &[0, 1, 2]);
+    let mut t = Tetromino::new(TetrominoType::T);
+    t.rotation = 1;
+    t.update_blocks();
+    t.position = (0, BOTTOM - 3);
+    game.current_piece = Some(t);
+    game.last_action_was_rotation = true;
+
+    // Two gravity steps down to the floor.
+    for _ in 0..2 {
+        game.drop_timer = game.drop_interval;
+        game.update(0.0);
+    }
+    assert_eq!(game.current_piece.as_ref().map(|p| p.position.1), Some(BOTTOM - 1));
+    lock_and_clear(&mut game);
+
+    assert!(!game.lock_was_t_spin);
+}
+
+/// A row finished by a ghost block: a plain clear (whatever the last piece was), and no piece placed.
+#[test]
+fn a_ghost_block_clear_is_plain_and_places_no_piece() {
+    use crate::game::config::GHOST_THROW_ANIMATION_TIME;
+    let mut game = Game::new();
+    game.lock_was_t_spin = true; // as if the last piece had been a T-spin
+    fill_row_except(&mut game, BOTTOM, &[6]);
+    let pieces = game.scoring_system.pieces();
+    game.ghost_blocks_available = 1;
+    game.ghost_throw_target = (6, BOTTOM);
+    game.ghost_throw_active = true;
+    game.ghost_throw_timer = GHOST_THROW_ANIMATION_TIME;
+
+    game.update(0.0);
+    assert!(game.is_clearing_lines());
+    assert!(!game.lock_was_t_spin, "the haptic reads this as the clear starts");
+    game.finish_line_clear();
+
+    assert_eq!(game.scoring_system.last_clear().map(|c| c.kind), Some(LineClearType::Single));
+    assert_eq!(game.scoring_system.pieces(), pieces);
+}

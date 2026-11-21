@@ -172,7 +172,7 @@ pub struct TetrisScoring {
     /// Line clears processed so far (so the app can tell a new one happened).
     #[serde(default)]
     pub clears: u32,
-    /// Pieces locked so far: every lock is either a clear or not.
+    /// Pieces locked so far (counted by the game at each lock).
     #[serde(default)]
     pub pieces: u32,
     /// The most recent clear.
@@ -295,7 +295,6 @@ impl TetrisScoring {
     pub fn process_line_clear(&mut self, action: ScoringAction) -> ScoringResult {
         let result = self.calculate_score(action.clone());
         self.clears += 1;
-        self.pieces += 1;
         let record = ClearRecord {
             kind: action.line_clear_type,
             chain: self.combo_count,
@@ -315,7 +314,6 @@ impl TetrisScoring {
     
     /// Process a piece placement with no line clear (breaks combo)
     pub fn process_no_line_clear(&mut self) {
-        self.pieces += 1;
         self.combo_count = 0;
         // back_to_back_ready status is preserved (only reset by non-difficult moves)
     }
@@ -353,6 +351,11 @@ impl TetrisScoring {
     /// Line clears processed so far.
     pub fn clears(&self) -> u32 {
         self.clears
+    }
+
+    /// A piece locked.
+    pub fn count_piece(&mut self) {
+        self.pieces += 1;
     }
 
     /// Pieces locked so far.
@@ -547,16 +550,14 @@ mod tests {
         assert_eq!(scoring.last_clear().map(|c| (c.kind, c.chain)), Some((LineClearType::Double, 0)));
         scoring.process_line_clear(clear(LineClearType::Single, false));
         assert_eq!(scoring.clears(), 2);
-        assert_eq!(scoring.pieces(), 2);
         assert_eq!(scoring.last_clear().map(|c| (c.kind, c.chain)), Some((LineClearType::Single, 1)));
     }
 
     #[test]
-    fn no_clear_breaks_chain_and_counts_the_piece() {
+    fn no_clear_breaks_chain() {
         let mut scoring = TetrisScoring::new();
         scoring.process_line_clear(clear(LineClearType::Single, false));
         scoring.process_no_line_clear();
-        assert_eq!(scoring.pieces(), 2);
         assert_eq!(scoring.clears(), 1);
         scoring.process_line_clear(clear(LineClearType::Single, false));
         assert_eq!(scoring.last_clear().map(|c| c.chain), Some(0));

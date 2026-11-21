@@ -236,7 +236,10 @@ impl Game {
         
         // Check if it's time to drop the current piece
         if self.drop_timer >= self.drop_interval {
-            self.drop_current_piece();
+            // Moved since any rotation, so it can't be a T-spin.
+            if self.drop_current_piece() {
+                self.last_action_was_rotation = false;
+            }
             self.drop_timer = 0.0;
         }
     }
@@ -279,6 +282,7 @@ impl Game {
     pub fn lock_current_piece(&mut self) {
         self.lock_was_t_spin = self.is_t_spin();
         if let Some(piece) = self.current_piece.take() {
+            self.scoring_system.count_piece();
             // Debug logging for piece locking
             log::debug!("Locking piece {:?} at position ({}, {}) after {:.2}s lifetime, {} lock resets",
                        piece.piece_type, piece.position.0, piece.position.1, 
@@ -1118,6 +1122,8 @@ impl Game {
         // Check if this placement creates any complete lines
         let complete_lines = self.board.find_complete_lines();
         if !complete_lines.is_empty() {
+            // A ghost block's clear is never a T-spin, whatever the last piece was.
+            self.lock_was_t_spin = false;
             self.start_line_clear_animation(complete_lines);
         }
         
