@@ -29,6 +29,8 @@ struct MainThreadState {
     paused: bool,
     update_requested: bool,
     view: *mut Object,
+    // rust-tetris patch: the hidden text field the on-screen keyboard types into.
+    textfield: ObjcId,
     keymods: KeyMods,
     cur_msg: Message,
 }
@@ -114,8 +116,15 @@ impl MainThreadState {
     fn process_request(&mut self, request: crate::native::Request) {
         use crate::native::Request::*;
 
-        if let ScheduleUpdate = request {
-            self.update_requested = true;
+        match request {
+            ScheduleUpdate => self.update_requested = true,
+            // rust-tetris patch: upstream ignores this on iOS ("only works on Android"), so the
+            // keyboard never came up. Requests arrive on the event thread; UIKit wants the main one.
+            ShowKeyboard(show) => unsafe {
+                let sel = if show { sel!(becomeFirstResponder) } else { sel!(resignFirstResponder) };
+                msg_send_![self.textfield, performSelectorOnMainThread:sel withObject:nil waitUntilDone:NO];
+            },
+            _ => {}
         }
     }
 }
@@ -603,6 +612,7 @@ pub fn define_app_delegate() -> *const Class {
                 paused: true,
                 update_requested: true,
                 view: view.view,
+                textfield,
                 keymods: KeyMods {
                     shift: false,
                     ctrl: false,
@@ -866,6 +876,16 @@ fn define_textfield_dlg() -> *const Class {
         NO
     }
 
+    extern "C" fn text_field_should_return(_: &Object, _: Sel, _textfield: ObjcId) -> BOOL {
+        send_message(Message::KeyDown {
+            keycode: crate::event::KeyCode::Enter,
+        });
+        send_message(Message::KeyUp {
+            keycode: crate::event::KeyCode::Enter,
+        });
+        NO
+    }
+
     unsafe {
         decl.add_method(
             sel!(keyboardWasShown:),
@@ -878,6 +898,11 @@ fn define_textfield_dlg() -> *const Class {
         decl.add_method(
             sel!(keyboardDidChangeFrame:),
             keyboard_did_change_frame as extern "C" fn(&Object, Sel, ObjcId),
+        );
+        // rust-tetris patch: the keyboard's Return key comes here, not as a "\n" character.
+        decl.add_method(
+            sel!(textFieldShouldReturn:),
+            text_field_should_return as extern "C" fn(&Object, Sel, ObjcId) -> BOOL,
         );
         decl.add_method(
             sel!(textField: shouldChangeCharactersInRange: replacementString:),

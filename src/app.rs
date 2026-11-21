@@ -323,8 +323,10 @@ pub async fn run() {
                     // Update game logic
                     current_game.update(delta_time as f64);
                     
-                    // Check for game over and high score
-                    if current_game.state == GameState::GameOver && prev_state != GameState::GameOver {
+                    // Check for game over and high score. Any frame showing a finished game moves on
+                    // (not only the frame it ended), so nothing can leave the GAME OVER card stuck
+                    // with no way out on a touch screen.
+                    if current_game.state == GameState::GameOver {
                         crate::game_center::submit_score(current_game.score);
                         // Game just ended - check for high score
                         if menu_system.check_high_score(
