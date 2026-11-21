@@ -101,12 +101,11 @@ pub fn draw(game: &Game, layout: &Layout, pal: &FxPalette) {
 
     // The word: as big as fits the screen (and no taller than a good part of the board).
     let chars: Vec<String> = WORD.chars().map(String::from).collect();
-    let base = (screen.w * 0.9 / (chars.len() as f32 * 0.62)).min(board.h * 0.12).max(12.0);
-    let widths: Vec<f32> = chars.iter().map(|c| measure_text(c, None, base as u16, 1.0).width).collect();
-    let gap = base * 0.06;
-    let total: f32 = widths.iter().sum::<f32>() + gap * (chars.len() - 1) as f32;
-    let margin = base * 0.3;
-    let cx = (board.center().x).clamp(screen.x + total / 2.0 + margin, screen.right() - total / 2.0 - margin);
+    let fit = fit_word(screen.w, board.h);
+    let (base, widths, gap, total, margin) = (fit.size, fit.widths, fit.gap, fit.total, fit.margin);
+    // Over the board when there's room, otherwise the middle of the screen.
+    let (lo, hi) = (screen.x + total / 2.0 + margin, screen.right() - total / 2.0 - margin);
+    let cx = if lo <= hi { board.center().x.clamp(lo, hi) } else { screen.center().x };
     let cy = board.y + board.h * 0.42;
 
     // Dim the board behind the word while it's up.
@@ -148,6 +147,37 @@ pub fn draw(game: &Game, layout: &Layout, pal: &FxPalette) {
         let x = (cx + total / 2.0 + base * 0.35).min(screen.right() - base * 0.45);
         draw_stamp(x, cy + base * 0.75, base, t, pal);
     }
+}
+
+/// The word's size and letter widths, in the current font, fitted to a screen `screen_w` wide.
+struct WordFit {
+    size: f32,
+    widths: Vec<f32>,
+    gap: f32,
+    total: f32,
+    margin: f32,
+}
+
+fn fit_word(screen_w: f32, board_h: f32) -> WordFit {
+    let measure = |size: f32| -> (Vec<f32>, f32, f32) {
+        let widths: Vec<f32> = WORD.chars().map(|c| measure_text(&c.to_string(), None, size.max(1.0) as u16, 1.0).width).collect();
+        let gap = size * 0.06;
+        let total = widths.iter().sum::<f32>() + gap * (widths.len() - 1) as f32;
+        (widths, gap, total)
+    };
+    let mut size = (screen_w * 0.9 / (WORD.len() as f32 * 0.62)).min(board_h * 0.12).max(12.0);
+    let (mut widths, mut gap, mut total) = measure(size);
+    // Wide fonts: shrink until the word and its margins fit (sizes round to whole pixels, so a
+    // second pass catches what the first leaves over).
+    for _ in 0..3 {
+        let room = screen_w * 0.94 - 2.0 * size * 0.3;
+        if total <= room || size <= 6.0 {
+            break;
+        }
+        size = (size * room / total).floor().max(6.0);
+        (widths, gap, total) = measure(size);
+    }
+    WordFit { size, widths, gap, total, margin: size * 0.3 }
 }
 
 fn gradient(stops: &[Color; 3], u: f32) -> Color {
@@ -287,6 +317,19 @@ mod tests {
             assert_eq!(l.above, 0.0, "letter {i} has landed");
             assert!((l.scale - 1.0).abs() < 1e-3);
         }
+    }
+
+    #[test]
+    fn the_word_fits_the_screen_in_every_font() {
+        use crate::graphics::text::{set_face, Face};
+        for face in Face::ALL {
+            set_face(face);
+            for w in [320.0, 390.0, 430.0, 458.0, 568.0, 744.0, 1024.0] {
+                let fit = fit_word(w, w * 1.6);
+                assert!(fit.total + 2.0 * fit.margin <= w, "{face:?} at {w}: word {} + margins {} > screen", fit.total, fit.margin);
+            }
+        }
+        set_face(Face::Proggy);
     }
 
     #[test]
