@@ -91,9 +91,10 @@ impl SRSRotationSystem {
             test_piece.rotation = target_rotation;
             test_piece.update_blocks();
             
-            // Apply kick offset
+            // Apply kick offset. The tables use SRS notation (+y up) but
+            // board rows count downward, so the y offset is flipped here.
             test_piece.position.0 += kick_x;
-            test_piece.position.1 += kick_y;
+            test_piece.position.1 -= kick_y;
             
             // Test if the new position is valid
             if self.is_position_valid(&test_piece, board) {

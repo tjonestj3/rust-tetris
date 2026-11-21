@@ -470,62 +470,42 @@ impl Game {
         }
     }
     
+    /// Put a rotation result into play. Returns whether the piece turned.
+    fn apply_rotation(&mut self, result: RotationResult) -> bool {
+        let new_piece = match result {
+            RotationResult::Success { new_piece }
+            | RotationResult::SuccessWithKick { new_piece, .. } => new_piece,
+            RotationResult::Failed => return false, // Blocked, piece stays in place
+        };
+        let was_grounded = self.piece_is_locking;
+        self.current_piece = Some(new_piece);
+        // Mark that the last successful action was a rotation (for T-spins)
+        self.last_action_was_rotation = true;
+        self.update_lock_state_for_current_piece();
+        // Turning a piece that is already resting on the stack restarts its
+        // lock delay, up to MAX_LOCK_RESETS times per piece.
+        if was_grounded && self.piece_is_locking {
+            self.reset_lock_delay();
+        }
+        true
+    }
+    
     /// Try to rotate the current piece clockwise using SRS wall kicks
     pub fn rotate_piece_clockwise(&mut self) -> bool {
-        if let Some(piece) = &self.current_piece {
-            match self.rotation_system.rotate_clockwise(piece, &self.board) {
-                RotationResult::Success { new_piece } => {
-                    self.current_piece = Some(new_piece);
-                    // Mark that the last successful action was a rotation
-                    self.last_action_was_rotation = true;
-                    // Check lock state after successful rotation
-                    self.update_lock_state_for_current_piece();
-                    return true;
-                },
-                RotationResult::SuccessWithKick { new_piece, kick_used: _ } => {
-                    self.current_piece = Some(new_piece);
-                    // Mark that the last successful action was a rotation (with kick)
-                    self.last_action_was_rotation = true;
-                    // Check lock state after successful rotation
-                    self.update_lock_state_for_current_piece();
-                    return true;
-                },
-                RotationResult::Failed => {
-                    // Rotation blocked, piece stays in place
-                    return false;
-                }
-            }
-        }
-        false
+        let result = match &self.current_piece {
+            Some(piece) => self.rotation_system.rotate_clockwise(piece, &self.board),
+            None => return false,
+        };
+        self.apply_rotation(result)
     }
     
     /// Try to rotate the current piece counterclockwise using SRS wall kicks
     pub fn rotate_piece_counterclockwise(&mut self) -> bool {
-        if let Some(piece) = &self.current_piece {
-            match self.rotation_system.rotate_counterclockwise(piece, &self.board) {
-                RotationResult::Success { new_piece } => {
-                    self.current_piece = Some(new_piece);
-                    // Mark that the last successful action was a rotation
-                    self.last_action_was_rotation = true;
-                    // Check lock state after successful rotation
-                    self.update_lock_state_for_current_piece();
-                    return true;
-                },
-                RotationResult::SuccessWithKick { new_piece, kick_used: _ } => {
-                    self.current_piece = Some(new_piece);
-                    // Mark that the last successful action was a rotation (with kick)
-                    self.last_action_was_rotation = true;
-                    // Check lock state after successful rotation
-                    self.update_lock_state_for_current_piece();
-                    return true;
-                },
-                RotationResult::Failed => {
-                    // Rotation blocked, piece stays in place
-                    return false;
-                }
-            }
-        }
-        false
+        let result = match &self.current_piece {
+            Some(piece) => self.rotation_system.rotate_counterclockwise(piece, &self.board),
+            None => return false,
+        };
+        self.apply_rotation(result)
     }
     
     /// Hard drop the current piece
@@ -837,7 +817,9 @@ impl Game {
         
         // Piece is grounded - only reset if we haven't exceeded the maximum number of resets
         if self.lock_resets < MAX_LOCK_RESETS {
-            self.piece_is_locking = false;
+            // Still resting on the stack, so a fresh lock delay starts now
+            // (rather than waiting for the next gravity tick to restart it)
+            self.piece_is_locking = true;
             self.lock_delay_timer = 0.0;
             self.lock_resets += 1;
             log::debug!("Lock delay reset #{}: grounded piece gets more time", self.lock_resets);
