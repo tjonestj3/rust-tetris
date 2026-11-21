@@ -88,6 +88,16 @@ pub fn gradient_rect(r: Rect, top: Color, bottom: Color) {
     });
 }
 
+/// A rectangle shaded from `left` to `right`.
+pub fn hgradient_rect(r: Rect, left: Color, right: Color) {
+    let v = |x: f32, y: f32, c: Color| Vertex::new(x, y, 0.0, 0.0, 0.0, c);
+    draw_mesh(&Mesh {
+        vertices: vec![v(r.x, r.y, left), v(r.right(), r.y, right), v(r.right(), r.bottom(), right), v(r.x, r.bottom(), left)],
+        indices: vec![0, 1, 2, 0, 2, 3],
+        texture: None,
+    });
+}
+
 /// Points per corner for a corner of `radius` pixels: smooth, but no more than needed.
 fn corner_segments(radius: f32) -> usize {
     ((radius / 2.0).ceil() as usize).clamp(2, 10)
@@ -189,6 +199,10 @@ pub fn block(x: f32, y: f32, size: f32, color: Color) {
     // Shine across the top, a darker rim.
     let shine = Rect::new(r.x + r.w * 0.12, r.y + r.h * 0.10, r.w * 0.76, r.h * 0.26);
     round_rect(shine, radius * 0.6, Color::new(1.0, 1.0, 1.0, 0.45 * a), Color::new(1.0, 1.0, 1.0, 0.05 * a));
+    // Light pooling along the bottom edge, and a glint in the top corner.
+    let pool = Rect::new(r.x + r.w * 0.16, r.bottom() - r.h * 0.3, r.w * 0.68, r.h * 0.22);
+    round_rect(pool, radius * 0.5, mix(color, WHITE, 0.5).with_alpha(0.0), mix(color, WHITE, 0.55).with_alpha(0.4 * a));
+    draw_circle(r.x + r.w * 0.24, r.y + r.h * 0.24, (r.w * 0.07).max(1.0), Color::new(1.0, 1.0, 1.0, 0.75 * a));
     round_outline(r, radius, (size * 0.05).max(1.0), mix(color, BLACK, 0.45).with_alpha(0.7 * a));
 }
 

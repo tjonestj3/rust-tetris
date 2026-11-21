@@ -23,6 +23,7 @@ use std::collections::VecDeque;
 use macroquad::prelude::*;
 use crate::graphics::text::{draw_text, measure_text};
 
+use crate::graphics::theme::ThemeId;
 use crate::graphics::view::Layout;
 
 /// What the screen is showing, which decides how touches are read.
@@ -31,15 +32,16 @@ pub enum Mode {
     None,
     /// Menus: taps on the canvas.
     Menu,
-    /// Playing: gestures, plus the pause icon (`legacy`: the game is in the legacy look).
-    Game { legacy: bool },
-    /// Paused: Resume / Legacy / Menu buttons (`legacy`: the game is in the legacy look).
-    Paused { legacy: bool },
+    /// Playing: gestures, plus the pause icon (drawn in `theme`).
+    Game { theme: ThemeId },
+    /// Paused: Resume / Theme / Menu buttons (`legacy`: the game is in the Terminal theme;
+    /// `theme`: the theme's name, on its button).
+    Paused { theme: ThemeId },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
     /// The game-over card is up: PLAY AGAIN (R) and MENU (Escape), or SAVE SCORE (Enter) when
     /// the score makes the leaderboard.
-    GameOver { legacy: bool, high_score: bool },
+    GameOver { theme: ThemeId, high_score: bool },
 }
 
 /// What the player's fingers did this frame, for the game to apply.
@@ -66,6 +68,8 @@ struct Finger {
     new: bool,
     /// Lifted this frame (it's still reported once).
     ended: bool,
+    /// iOS took the touch away (a system gesture, a call): ended, but not lifted on purpose.
+    cancelled: bool,
 }
 
 /// A gesture in progress: from the first finger down until it lifts.
@@ -80,6 +84,9 @@ struct Gesture {
     travel: f32,
     moved: bool,
     max_fingers: usize,
+    /// Fingers that were already down when this gesture began (one on a button, or one whose
+    /// end never arrived): they don't make it a two-finger gesture.
+    before: Vec<u64>,
     /// Recent positions, for the flick speed.
     samples: VecDeque<(f64, Vec2)>,
 }
@@ -95,17 +102,14 @@ const BUTTON_SLACK: f32 = 10.0;
 /// The label of the HOLD and score panels' buttons: not drawn here (the panel is the button).
 const PANEL: &str = "";
 
-/// The pause screen's legacy-look switch.
-const LEGACY_ON: &str = "LEGACY ON";
-const LEGACY_OFF: &str = "LEGACY OFF";
 
 #[derive(Debug, Clone, Copy)]
 struct Button {
     rect: Rect,
     key: KeyCode,
     label: &'static str,
-    /// Drawn in the legacy look (green on black).
-    legacy: bool,
+    /// The theme it's drawn in.
+    theme: ThemeId,
 }
 
 #[derive(Default)]
@@ -219,6 +223,7 @@ fn read_fingers() -> Vec<Finger> {
                 pos: t.position,
                 new: !seen.contains(&t.id),
                 ended: matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled),
+                cancelled: matches!(t.phase, TouchPhase::Cancelled),
             })
             // One we already saw that has ended is just gone; a new one that's ended was a
             // tap too quick to span two frames, and still counts.
@@ -232,7 +237,7 @@ fn read_fingers() -> Vec<Finger> {
     );
     if down || pressed || released {
         let (x, y) = mouse_position();
-        return vec![Finger { id: u64::MAX, pos: vec2(x, y), new: pressed, ended: released && !down }];
+        return vec![Finger { id: u64::MAX, pos: vec2(x, y), new: pressed, ended: released && !down, cancelled: false }];
     }
     Vec::new()
 }
@@ -256,16 +261,23 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
                 travel: 0.0,
                 moved: false,
                 max_fingers: 1,
+                before: fingers.iter().filter(|o| o.id != f.id && !o.new).map(|o| o.id).collect(),
                 samples,
             });
         }
     }
 
     let Some(g) = s.gesture.as_mut() else { return };
-    let down_now = fingers.iter().filter(|f| !f.ended).count();
-    g.max_fingers = g.max_fingers.max(down_now.max(fingers.len().min(2)));
+    let mine: Vec<&Finger> = fingers.iter().filter(|f| !g.before.contains(&f.id)).collect();
+    let down_now = mine.iter().filter(|f| !f.ended).count();
+    g.max_fingers = g.max_fingers.max(down_now.max(mine.len().min(2)));
 
     let finger = fingers.iter().find(|f| f.id == g.id).copied();
+    // iOS took the touch (e.g. a pull from the screen's edge): drop the gesture, don't act on it.
+    if finger.map(|f| f.cancelled).unwrap_or(false) {
+        s.gesture = None;
+        return;
+    }
     let last = g.samples.back().map(|s| s.1).unwrap_or(g.start);
     let pos = finger.map(|f| f.pos).unwrap_or(last);
 
@@ -375,7 +387,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 button(shrink(layout.play.stats), KeyCode::B, PANEL),
             ]
         }
-        Mode::Paused { legacy } => {
+        Mode::Paused { theme } => {
             // Below the pause screen's text (app::touch_view::draw_pause): Resume, then Legacy
             // (the L key: switch the look) and Menu side by side.
             let (w, h, gap) = ((260.0 * u).min(layout.safe.w * 0.8), 52.0 * u, 14.0 * u);
@@ -385,7 +397,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
             let (left, low) = (cx - w / 2.0, cy + gap / 2.0);
             vec![
                 button(Rect::new(left, cy - h - gap / 2.0, w, h), KeyCode::P, "RESUME"),
-                button(Rect::new(left, low, half, h), KeyCode::L, if legacy { LEGACY_ON } else { LEGACY_OFF }),
+                button(Rect::new(left, low, half, h), KeyCode::L, crate::graphics::theme::get(theme).name),
                 button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
@@ -406,8 +418,8 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
         }
         _ => Vec::new(),
     };
-    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } | Mode::GameOver { legacy: true, .. } = mode {
-        buttons.iter_mut().for_each(|b| b.legacy = true);
+    if let Mode::Game { theme } | Mode::Paused { theme } | Mode::GameOver { theme, .. } = mode {
+        buttons.iter_mut().for_each(|b| b.theme = theme);
     }
     buttons
 }
@@ -422,7 +434,7 @@ pub fn game_over_card(layout: &Layout) -> Rect {
 }
 
 fn button(rect: Rect, key: KeyCode, label: &'static str) -> Button {
-    Button { rect, key, label, legacy: false }
+    Button { rect, key, label, theme: ThemeId::Neon }
 }
 
 fn grow(r: Rect, by: f32) -> Rect {
@@ -433,20 +445,24 @@ fn draw_button(b: &Button, u: f32) {
     if b.label == PANEL {
         return;
     }
-    use crate::graphics::style::{self, CYAN, GOLD, GREEN, INK, PINK, TERM_GREEN, VIOLET};
+    use crate::graphics::style::{self, TERM_GREEN};
+    use crate::graphics::theme::{self, Accent};
     let r = b.rect;
-    let ink = if b.legacy { TERM_GREEN } else { INK };
+    let t = theme::get(b.theme);
+    let menu_face = crate::graphics::text::face();
+    crate::graphics::text::set_face(t.face);
+    let ink = t.value;
     let accent = match b.label {
-        "II" => PINK,
-        "MENU" => CYAN,
-        LEGACY_ON => GREEN,
-        LEGACY_OFF => VIOLET,
-        _ => GOLD,
+        "II" => Accent::Pink,
+        "MENU" => Accent::Cyan,
+        "RESUME" | "PLAY AGAIN" | "SAVE SCORE" => Accent::Gold,
+        // The theme button, named for the theme.
+        _ => Accent::Violet,
     };
-    if b.legacy {
+    if t.terminal {
         style::term_box(r, TERM_GREEN, 0.9, u);
     } else {
-        style::panel(r, accent, u);
+        (t.panel)(r, t.accent(accent), u);
     }
     let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     if b.label == "II" {
@@ -454,6 +470,7 @@ fn draw_button(b: &Button, u: f32) {
         let (bw, bh) = (r.w * 0.14, r.h * 0.45);
         draw_rectangle(cx - bw * 1.6, cy - bh / 2.0, bw, bh, ink);
         draw_rectangle(cx + bw * 0.6, cy - bh / 2.0, bw, bh, ink);
+        crate::graphics::text::set_face(menu_face);
         return;
     }
     // As big as fits.
@@ -464,6 +481,7 @@ fn draw_button(b: &Button, u: f32) {
     }
     let dims = measure_text(b.label, None, size as u16, 1.0);
     draw_text(b.label, cx - dims.width / 2.0, cy + dims.offset_y / 2.0, size, ink);
+    crate::graphics::text::set_face(menu_face);
 }
 
 #[cfg(test)]
@@ -485,7 +503,7 @@ mod tests {
             .map(|(t, fs)| {
                 let fingers: Vec<Finger> = fs
                     .iter()
-                    .map(|&(id, x, y, new, ended)| Finger { id, pos: vec2(x, y), new, ended })
+                    .map(|&(id, x, y, new, ended)| Finger { id, pos: vec2(x, y), new, ended, cancelled: false })
                     .collect();
                 let fresh: Vec<Finger> = fingers.iter().copied().filter(|f| f.new).collect();
                 s.gestures = Gestures::default();
@@ -493,6 +511,23 @@ mod tests {
                 s.gestures
             })
             .collect()
+    }
+
+    #[test]
+    fn a_cancelled_swipe_does_nothing() {
+        // A quick drag down that iOS takes over (Notification Center) and cancels: no hard drop.
+        let mut s = State::default();
+        let l = layout();
+        let mut fired = Gestures::default();
+        for (t, y, new, cancelled) in [(0.0, 100.0, true, false), (0.03, 200.0, false, false), (0.06, 320.0, false, true)] {
+            let f = Finger { id: 1, pos: vec2(450.0, y), new, ended: cancelled, cancelled };
+            let fresh: Vec<Finger> = if new { vec![f] } else { vec![] };
+            s.gestures = Gestures::default();
+            track_gesture(&mut s, &l, &[f], &fresh, t);
+            fired = total(&[fired, s.gestures]);
+        }
+        assert!(!fired.hard_drop && !fired.rotate_cw && fired.tap_cell.is_none());
+        assert!(s.gesture.is_none());
     }
 
     fn total(gs: &[Gestures]) -> Gestures {
@@ -625,6 +660,36 @@ mod tests {
         }
         frames.push((0.6, vec![(1, 200.0, 200.0, false, true)]));
         assert_eq!(total(&run(&frames)).moves, 3);
+    }
+
+    #[test]
+    fn a_finger_left_down_before_doesnt_make_swipes_two_finger() {
+        // A finger whose end never arrived (iOS cancelled it) sits still where the HOLD box was
+        // tapped (a button, so it never started a gesture); then a flick down and a drag
+        // sideways still work, and a tap still rotates clockwise.
+        let stale = (9, 60.0, 80.0, false, false);
+        let mut frames = vec![(0.0, vec![stale])];
+        frames.push((0.5, vec![stale, (1, 100.0, 100.0, true, false)]));
+        frames.push((0.53, vec![stale, (1, 100.0, 140.0, false, false)]));
+        frames.push((0.56, vec![stale, (1, 101.0, 200.0, false, false)]));
+        frames.push((0.58, vec![stale, (1, 101.0, 240.0, false, true)]));
+        let g = total(&run(&frames));
+        assert!(g.hard_drop, "flick down with a stale finger elsewhere: {g:?}");
+
+        let mut frames = vec![(0.0, vec![stale])];
+        frames.push((0.5, vec![stale, (1, 100.0, 300.0, true, false)]));
+        for i in 1..=10 {
+            frames.push((0.5 + i as f64 * 0.05, vec![stale, (1, 100.0 + i as f32 * 10.0, 300.0, false, false)]));
+        }
+        frames.push((1.1, vec![stale, (1, 200.0, 300.0, false, true)]));
+        assert_eq!(total(&run(&frames)).moves, 3);
+
+        let g = total(&run(&[
+            (0.0, vec![stale]),
+            (0.5, vec![stale, (1, 200.0, 300.0, true, false)]),
+            (0.6, vec![stale, (1, 201.0, 301.0, false, true)]),
+        ]));
+        assert!(g.rotate_cw && !g.rotate_ccw, "{g:?}");
     }
 
     #[test]

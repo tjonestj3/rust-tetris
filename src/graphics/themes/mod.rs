@@ -1,0 +1,64 @@
+//! One file per theme (see super::theme).
+
+pub mod arcade;
+pub mod chess;
+pub mod desktop98;
+pub mod glass;
+pub mod linux;
+pub mod macosx;
+pub mod neon;
+pub mod terminal;
+pub mod warm_paper;
+
+use macroquad::prelude::*;
+
+use super::style;
+
+/// A raised (or, `raised` false, sunken) bevel around `r`: light along the top and left, dark
+/// along the bottom and right, `t` pixels each.
+pub(super) fn bevel(r: Rect, t: f32, light: Color, dark: Color, raised: bool) {
+    let (tl, br) = if raised { (light, dark) } else { (dark, light) };
+    draw_rectangle(r.x, r.y, r.w, t, tl);
+    draw_rectangle(r.x, r.y, t, r.h, tl);
+    draw_rectangle(r.x, r.bottom() - t, r.w, t, br);
+    draw_rectangle(r.right() - t, r.y, t, r.h, br);
+}
+
+/// A number in 0..1, the same each time for the same `i` and `k` (grain, specks).
+pub(super) fn hash01(i: u32, k: u32) -> f32 {
+    let mut h = i.wrapping_mul(0x9E37_79B1) ^ k.wrapping_mul(0x85EB_CA77);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65536.0
+}
+
+/// Soft edge: a blurred blob of light, brightest in the middle and fading to nothing at `r`.
+/// One mesh in a single draw, so each pixel is blended once (stacking dozens of translucent
+/// circles cost the GPU dearly at full iPhone resolution). The fall-off matches 40 stacked
+/// rings of 3% each.
+pub(super) fn soft_circle(x: f32, y: f32, r: f32, color: Color) {
+    const RINGS: usize = 10;
+    const SEGMENTS: usize = 48;
+    let alpha_at = |d: f32| 1.0 - (1.0 - color.a * 0.03).powf(40.0 * (1.0 - d));
+    let mut vertices = Vec::with_capacity(1 + RINGS * SEGMENTS);
+    vertices.push(Vertex::new(x, y, 0.0, 0.0, 0.0, style::alpha(color, alpha_at(0.0))));
+    for ring in 1..=RINGS {
+        let d = ring as f32 / RINGS as f32;
+        let c = style::alpha(color, alpha_at(d));
+        for seg in 0..SEGMENTS {
+            let a = seg as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+            vertices.push(Vertex::new(x + a.cos() * r * d, y + a.sin() * r * d, 0.0, 0.0, 0.0, c));
+        }
+    }
+    let at = |ring: usize, seg: usize| (1 + (ring - 1) * SEGMENTS + seg % SEGMENTS) as u16;
+    let mut indices = Vec::with_capacity(SEGMENTS * 3 * (2 * RINGS - 1));
+    for seg in 0..SEGMENTS {
+        indices.extend_from_slice(&[0, at(1, seg), at(1, seg + 1)]);
+        for ring in 1..RINGS {
+            let (a, b, c, d) = (at(ring, seg), at(ring, seg + 1), at(ring + 1, seg), at(ring + 1, seg + 1));
+            indices.extend_from_slice(&[a, c, d, a, d, b]);
+        }
+    }
+    draw_mesh(&Mesh { vertices, indices, texture: None });
+}

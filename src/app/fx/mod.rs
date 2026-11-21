@@ -20,69 +20,11 @@ use macroquad::prelude::*;
 
 use crate::game::{Game, GameState};
 use crate::game::config::{BOARD_WIDTH, BUFFER_HEIGHT};
-use crate::graphics::style::{self, CYAN, GOLD, PINK, VIOLET};
+use crate::graphics::style;
 use crate::graphics::text::{draw_text, measure_text};
 use crate::graphics::view::Layout;
 
-/// Every colour the effects draw with.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct FxPalette {
-    /// JONES'IN!'s letters, left to right.
-    pub word: [Color; 3],
-    /// The letters for a back-to-back Tetris.
-    pub hot: [Color; 3],
-    /// The letters' raised edge, and their outline.
-    pub edge: Color,
-    pub outline: Color,
-    /// The screen flash, the shockwave rings and the dim behind the word.
-    pub flash: Color,
-    pub rings: [Color; 2],
-    pub dim: Color,
-    /// BACK-TO-BACK's banner and its text; the X2 stamp.
-    pub banner: Color,
-    pub banner_ink: Color,
-    pub stamp: Color,
-    /// The heat rising behind a back-to-back word.
-    pub heat: Color,
-    /// Dust where a hard-dropped piece lands.
-    pub dust: Color,
-    /// T-SPIN's banner and the T's glow.
-    pub tspin: Color,
-    /// The combo chip, from a small combo to a big one.
-    pub combo: [Color; 3],
-    /// PERFECT CLEAR and its light.
-    pub perfect: Color,
-    /// The game-over card's edge.
-    pub card_edge: Color,
-    /// What a finished game's blocks fade to.
-    pub grey: Color,
-}
-
-impl Default for FxPalette {
-    /// Neon, the look the game has today.
-    fn default() -> Self {
-        let orange = Color::new(1.0, 0.54, 0.24, 1.0);
-        Self {
-            word: [CYAN, PINK, GOLD],
-            hot: [GOLD, orange, PINK],
-            edge: Color::new(0.16, 0.08, 0.38, 1.0),
-            outline: Color::new(0.04, 0.02, 0.12, 1.0),
-            flash: WHITE,
-            rings: [CYAN, PINK],
-            dim: Color::new(0.04, 0.02, 0.12, 1.0),
-            banner: PINK,
-            banner_ink: Color::new(0.08, 0.02, 0.18, 1.0),
-            stamp: GOLD,
-            heat: orange,
-            dust: style::mix(VIOLET, WHITE, 0.7),
-            tspin: VIOLET,
-            combo: [CYAN, GOLD, PINK],
-            perfect: GOLD,
-            card_edge: PINK,
-            grey: Color::new(0.42, 0.40, 0.52, 1.0),
-        }
-    }
-}
+pub(super) use crate::graphics::theme::FxPalette;
 
 /// How to draw one settled cell this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -325,7 +267,7 @@ pub(super) fn draw_block(x: f32, y: f32, cell: f32, color: Color, fx: CellFx, pa
     let size = cell * fx.scale;
     let color = if fx.grey > 0.0 { style::mix(color, pal.grey, fx.grey * 0.85) } else { color };
     let color = if fx.white > 0.0 { style::mix(color, WHITE, fx.white) } else { color };
-    style::block(x + (cell - size) / 2.0, y + fx.dy + (cell - size) / 2.0, size, color);
+    (pal.block)(x + (cell - size) / 2.0, y + fx.dy + (cell - size) / 2.0, size, color);
 }
 
 /// The screen position of board column `x`, row `y` (board rows, counting the hidden ones).

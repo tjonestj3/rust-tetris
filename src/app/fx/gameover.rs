@@ -8,6 +8,7 @@ use macroquad::prelude::*;
 use super::{ease_out_cubic, style, text_centered, FxPalette};
 use crate::game::Game;
 use crate::game::config::VISIBLE_HEIGHT;
+use crate::graphics::text::measure_text;
 use crate::graphics::view::Layout;
 use crate::input::touch::game_over_card;
 
@@ -55,32 +56,41 @@ impl GameOverFx {
         draw_rectangle(s.x, s.y, s.w, s.h, style::alpha(pal.dim, 0.45 * rise));
         let y = card.y + (s.bottom() - card.y) * (1.0 - back(rise));
         let r = Rect::new(card.x, y, card.w, card.h);
-        style::panel(r, pal.card_edge, u);
+        (pal.panel)(r, pal.card_edge, u);
         style::round_outline(r, 10.0 * u, (2.0 * u).max(1.0), style::alpha(pal.card_edge, 0.9));
 
         // GAME OVER in the word's colours, letter by letter.
+        // GAME OVER, letter by letter in the word's colours, as big as fits the card in this
+        // theme's font.
         let title = "GAME OVER";
-        let size = (r.w / 7.0).min(40.0 * u);
         let n = title.chars().count();
-        let step = size * 0.62;
-        let x0 = r.center().x - step * (n - 1) as f32 / 2.0;
+        let mut size = (r.w / 7.0).min(40.0 * u);
+        let full = measure_text(title, None, size as u16, 1.0).width * 1.15;
+        if full > r.w * 0.88 {
+            size *= r.w * 0.88 / full;
+        }
+        let spacing = size * 0.15 / (n - 1) as f32;
+        let widths: Vec<f32> = title.chars().map(|c| measure_text(&c.to_string(), None, size as u16, 1.0).width).collect();
+        let total: f32 = widths.iter().sum::<f32>() + spacing * (n - 1) as f32;
+        let mut x = r.center().x - total / 2.0;
         for (i, ch) in title.chars().enumerate() {
+            let cx = x + widths[i] / 2.0;
+            x += widths[i] + spacing;
             if ch == ' ' {
                 continue;
             }
             let u_ = i as f32 / (n - 1) as f32;
             let color = if u_ < 0.5 { style::mix(pal.word[0], pal.word[1], u_ * 2.0) } else { style::mix(pal.word[1], pal.word[2], (u_ - 0.5) * 2.0) };
-            let cx = x0 + i as f32 * step;
             let cy = r.y + r.h * 0.2;
             text_centered(&ch.to_string(), cx + 2.0 * u, cy + 2.0 * u, size, pal.outline);
             text_centered(&ch.to_string(), cx, cy, size, color);
         }
 
         let label = if self.high_score { "NEW HIGH SCORE!" } else { "SCORE" };
-        text_centered(label, r.center().x, r.y + r.h * 0.4, (size * 0.42).max(10.0), pal.stamp);
+        text_centered(label, r.center().x, r.y + r.h * 0.4, (size * 0.42).max(10.0), pal.card_label);
         let count = ease_out_cubic(((t - CARD_IN - CARD_RISE) / COUNT).clamp(0.0, 1.0));
         let shown = (game.score as f32 * count).round() as u32;
-        text_centered(&shown.to_string(), r.center().x, r.y + r.h * 0.56, size * 0.8, WHITE);
+        text_centered(&shown.to_string(), r.center().x, r.y + r.h * 0.56, size * 0.8, pal.card_ink);
     }
 }
 

@@ -99,6 +99,10 @@ pub enum HudStyle {
     TwoColumns,
     /// Board filling the width, a strip above it: Hold, stats, Next, pause.
     TopStrip,
+    /// The minimal look (a setting): the biggest board that fits, centred, the score in a thin
+    /// line above it, and small Hold and Next boxes beside the board's top, or in its top
+    /// corners when there's no room beside it.
+    Minimal,
 }
 
 /// Where everything goes while playing by touch, in screen pixels.
@@ -232,10 +236,70 @@ impl PlayLayout {
                 let pause = Rect::new(frame.right() - pause_w, y0 + (sh - pause_w) / 2.0, pause_w, pause_w);
                 (frame, next, hold, stats, pause)
             }
+            HudStyle::Minimal => unreachable!("chosen only by PlayLayout::minimal"),
         };
         Self { style, board: inside(frame), frame, cell, next, hold, stats, pause, feed, gap: m }
     }
+
+    /// The minimal look's layout (see [`HudStyle::Minimal`]): the board gets the full height
+    /// (or width), and the score line, pause button, Hold and Next go where there's room: above
+    /// the board, beside it, or failing both, small over its top rows.
+    pub fn minimal(safe: Rect, unit: f32, around: Margins) -> Self {
+        let m = 10.0 * unit;
+        let cols = BOARD_WIDTH as f32 + around.left + around.right;
+        let rows = VISIBLE_HEIGHT as f32 + around.top + around.bottom;
+        let cell = ((safe.h - 2.0 * m) / rows).min((safe.w - 2.0 * m) / cols).floor().max(4.0);
+        let (bw, bh) = (cell * cols, cell * rows);
+        let line_h = (cell * LINE_CELLS).round().max(26.0 * unit);
+        let above = safe.h - bh - 2.0 * m >= line_h + m * 0.5;
+        let x = (safe.x + (safe.w - bw) / 2.0).round();
+        let y = if above {
+            (safe.y + (safe.h - (line_h + m * 0.5 + bh)) / 2.0 + line_h + m * 0.5).round()
+        } else {
+            (safe.y + (safe.h - bh) / 2.0).round()
+        };
+        let frame = Rect::new(x, y, bw, bh);
+        let board = Rect::new(
+            (frame.x + cell * around.left).round(),
+            (frame.y + cell * around.top).round(),
+            cell * BOARD_WIDTH as f32,
+            cell * VISIBLE_HEIGHT as f32,
+        );
+        let (box_w, box_h) = ((cell * BOX_CELLS.0).round(), (cell * BOX_CELLS.1).round());
+        let beside = (safe.w - bw) / 2.0 - 2.0 * m >= box_w;
+        let pause_w = (cell * 1.5).max(28.0 * unit).min(44.0 * unit);
+
+        let (hold, next) = if beside {
+            (Rect::new(frame.x - m - box_w, board.y, box_w, box_h), Rect::new(frame.right() + m, board.y, box_w, box_h))
+        } else {
+            let inset = (cell * 0.25).round();
+            (
+                Rect::new(board.x + inset, board.y + inset, box_w, box_h),
+                Rect::new(board.right() - inset - box_w, board.y + inset, box_w, box_h),
+            )
+        };
+        let (stats, pause) = if above {
+            let top = frame.y - m * 0.5 - line_h;
+            let pause = Rect::new(frame.right() - pause_w, top + (line_h - pause_w) / 2.0, pause_w, pause_w);
+            (Rect::new(x, top, (bw - pause_w - m).max(0.0), line_h), pause)
+        } else if beside {
+            // Score under Hold on the left; pause at the bottom on the right.
+            let stats = Rect::new(hold.x, hold.bottom() + m, box_w, line_h * 2.0);
+            let pause = Rect::new(next.right() - pause_w, board.bottom() - pause_w, pause_w, pause_w);
+            (stats, pause)
+        } else {
+            // Over the board's top: the score between Hold and Next, pause under Next.
+            let stats = Rect::new(hold.right() + m * 0.5, hold.y, (next.x - hold.right() - m).max(0.0), line_h);
+            let pause = Rect::new(next.right() - pause_w, next.bottom() + m * 0.5, pause_w, pause_w);
+            (stats, pause)
+        };
+        Self { style: HudStyle::Minimal, board, frame, cell, next, hold, stats, pause, feed: None, gap: m }
+    }
 }
+
+/// The minimal look's score line, in cells; its Hold and Next boxes (width, height).
+const LINE_CELLS: f32 = 1.4;
+const BOX_CELLS: (f32, f32) = (3.4, 2.6);
 
 /// Draw `src` (canvas units) into `dst` (screen pixels), keeping proportions (`dst` should have
 /// `src`'s aspect ratio), without clipping: things drawn outside `src` show up outside `dst`.
@@ -446,6 +510,32 @@ mod tests {
             assert!((p.board.x - p.frame.x - around.left * p.cell).abs() <= 0.5, "{p:?}");
             assert!((p.board.y - p.frame.y - around.top * p.cell).abs() <= 0.5, "{p:?}");
         }
+    }
+
+    #[test]
+    fn minimal_gets_a_board_at_least_as_big_and_keeps_inside_the_screen() {
+        for (w, h) in [(458.0, 574.0), (568.0, 449.0), (390.0, 751.0), (430.0, 932.0), (744.0, 369.0), (1024.0, 1300.0)] {
+            let safe = Rect::new(0.0, 0.0, w, h);
+            let normal = PlayLayout::compute(safe, 1.0, Margins::default());
+            let p = PlayLayout::minimal(safe, 1.0, Margins::default());
+            assert_eq!(p.style, HudStyle::Minimal);
+            assert!(p.cell >= normal.cell, "{w}x{h}: minimal cell {} < {}", p.cell, normal.cell);
+            let area = Rect::new(-0.5, -0.5, w + 1.0, h + 1.0);
+            for (name, r) in [("board", p.board), ("next", p.next), ("hold", p.hold), ("stats", p.stats), ("pause", p.pause)] {
+                assert!(inside(r, area), "{w}x{h}: {name} {r:?} off screen");
+            }
+            // Hold, Next, the score and the pause button don't overlap each other.
+            let parts = [p.hold, p.next, p.stats, p.pause];
+            for i in 0..parts.len() {
+                for j in i + 1..parts.len() {
+                    assert!(!parts[i].overlaps(&parts[j]), "{w}x{h}: parts {i} and {j} overlap: {p:?}");
+                }
+            }
+            assert_eq!(p.feed, None);
+        }
+        // Wide enough (the open Duo): the boxes sit beside the board, not on it.
+        let open = PlayLayout::minimal(Rect::new(0.0, 0.0, 568.0, 449.0), 1.0, Margins::default());
+        assert!(!open.hold.overlaps(&open.board) && !open.next.overlaps(&open.board), "{open:?}");
     }
 
     #[test]

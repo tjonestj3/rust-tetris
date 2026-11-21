@@ -271,8 +271,12 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
             sel!(touchesEnded: withEvent:),
             touches_ended as extern "C" fn(&Object, Sel, ObjcId, ObjcId),
         );
+        // rust-tetris patch: UIKit's selector is touchesCancelled (two Ls). Upstream registers
+        // "touchesCanceled", which UIKit never calls, so a touch iOS cancelled (one near the top
+        // edge, where its own pull-down gestures win) never ended: it stayed down forever and
+        // every later swipe counted as two fingers.
         decl.add_method(
-            sel!(touchesCanceled: withEvent:),
+            sel!(touchesCancelled: withEvent:),
             touches_canceled as extern "C" fn(&Object, Sel, ObjcId, ObjcId),
         );
         decl.add_method(
