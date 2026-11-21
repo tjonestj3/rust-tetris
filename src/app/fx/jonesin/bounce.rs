@@ -13,13 +13,26 @@ const DROP: f32 = 0.25;
 const AWAY: f32 = 0.3;
 const AWAY_STAGGER: f32 = 0.03;
 
+/// The gap between tiles, as a part of a tile.
+const GAP: f32 = 0.08;
+
+/// A tile's size for a word fitted at `size` on a screen `screen_w` wide.
+fn tile_size(size: f32, screen_w: f32) -> f32 {
+    (size * 1.05).min(screen_w * 0.94 / (LETTERS as f32 + (LETTERS - 1) as f32 * GAP))
+}
+
+/// The whole row of tiles, across.
+pub(super) fn row_width(size: f32, screen_w: f32) -> f32 {
+    let tile = tile_size(size, screen_w);
+    LETTERS as f32 * tile + (LETTERS - 1) as f32 * tile * GAP
+}
+
 pub(super) fn draw(s: &Scene) {
     let (t, pal, screen) = (s.t, s.pal, s.screen);
     s.dim(0.3);
-    let gap_k = 0.08;
-    let tile = (s.fit.size * 1.05).min(screen.w * 0.94 / (LETTERS as f32 + (LETTERS - 1) as f32 * gap_k));
-    let gap = tile * gap_k;
-    let row = LETTERS as f32 * tile + (LETTERS - 1) as f32 * gap;
+    let tile = tile_size(s.fit.size, screen.w);
+    let gap = tile * GAP;
+    let row = row_width(s.fit.size, screen.w);
     let left = s.cx - row / 2.0;
     let top = screen.y - tile * 1.5;
     let since = s.since();

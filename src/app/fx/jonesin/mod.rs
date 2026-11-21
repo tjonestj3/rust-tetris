@@ -188,9 +188,7 @@ pub fn draw(game: &Game, layout: &Layout, pal: &FxPalette) {
     let board = layout.play.board;
     // The word: as big as fits the screen (and no taller than a good part of the board).
     let fit = fit_word(screen.w, board.h);
-    // Over the board when there's room, otherwise the middle of the screen.
-    let (lo, hi) = (screen.x + fit.total / 2.0 + fit.margin, screen.right() - fit.total / 2.0 - fit.margin);
-    let cx = if lo <= hi { board.center().x.clamp(lo, hi) } else { screen.center().x };
+    let cx = centre_x(pal.styles.jonesin, &fit, screen, board.center().x);
     let s = Scene {
         t: game.tetris_celebration_timer as f32,
         hot: back_to_back(game),
@@ -244,6 +242,39 @@ fn fit_word(screen_w: f32, board_h: f32) -> WordFit {
         (widths, gap, total) = measure(size);
     }
     WordFit { size, widths, gap, total, margin: size * 0.3 }
+}
+
+/// How far either side of its centre a style draws (its sign, window, row of tiles...), for a
+/// word fitted as `fit` on a screen `screen_w` wide. Matches the sizes in each style's file.
+fn reach(style: JonesinStyle, fit: &WordFit, screen_w: f32) -> f32 {
+    let (total, size) = (fit.total, fit.size);
+    match style {
+        JonesinStyle::Slam | JonesinStyle::Typed => total / 2.0 + fit.margin,
+        JonesinStyle::Shell => (total + size * 1.2).min(screen_w * 0.96) / 2.0,
+        // The sign, and the bulbs and their glow round it.
+        JonesinStyle::Marquee => (total + size * 1.1).min(screen_w - size * 0.6) / 2.0 + size * 0.3,
+        JonesinStyle::Dialog => {
+            let base = size * 0.72;
+            let word = measure_text(WORD, None, base.max(1.0) as u16, 1.0).width;
+            (word + base * 2.6).min(screen_w * 0.94) / 2.0
+        }
+        JonesinStyle::Bounce => bounce::row_width(size, screen_w) / 2.0,
+        JonesinStyle::Stamp => (total + size * 0.9).min(screen_w * 0.97) / 2.0,
+        JonesinStyle::Plaque => (total + size * 1.3).min(screen_w * 0.97) / 2.0,
+        JonesinStyle::Bloom => (total + size).min(screen_w - size * 0.6) / 2.0 + size * 0.3,
+    }
+}
+
+/// Where the word's middle goes across: over the board (`board_cx`) when the style has room
+/// there, otherwise as near it as keeps the whole style on the screen.
+fn centre_x(style: JonesinStyle, fit: &WordFit, screen: Rect, board_cx: f32) -> f32 {
+    let r = reach(style, fit, screen.w);
+    let (lo, hi) = (screen.x + r, screen.right() - r);
+    if lo <= hi {
+        board_cx.clamp(lo, hi)
+    } else {
+        screen.center().x
+    }
 }
 
 fn gradient(stops: &[Color; 3], u: f32) -> Color {
@@ -367,6 +398,29 @@ mod tests {
             for w in [320.0, 390.0, 430.0, 458.0, 568.0, 744.0, 1024.0] {
                 let fit = fit_word(w, w * 1.6);
                 assert!(fit.total + 2.0 * fit.margin <= w, "{face:?} at {w}: word {} + margins {} > screen", fit.total, fit.margin);
+            }
+        }
+        set_face(Face::Proggy);
+    }
+
+    #[test]
+    fn every_style_stays_on_screen_wherever_the_board_is() {
+        // iPad portrait puts the board on the left (its middle near x = 300 of 1024); phones
+        // centre it. Every style, in every theme font, fits between the screen's edges.
+        use crate::graphics::text::{set_face, Face};
+        let styles = crate::graphics::theme::ALL.map(|id| crate::graphics::theme::get(id).fx.styles.jonesin);
+        for face in Face::ALL {
+            set_face(face);
+            for (w, h) in [(320.0, 568.0), (430.0, 932.0), (820.0, 1180.0), (1024.0, 1366.0), (1366.0, 1024.0)] {
+                let screen = Rect::new(0.0, 0.0, w, h);
+                let fit = fit_word(w, h * 0.8);
+                for style in styles {
+                    for board_cx in [w * 0.28, w * 0.5, w * 0.72] {
+                        let cx = centre_x(style, &fit, screen, board_cx);
+                        let r = reach(style, &fit, w);
+                        assert!(cx - r >= -0.5 && cx + r <= w + 0.5, "{style:?} {face:?} {w}x{h} board at {board_cx}: {} .. {}", cx - r, cx + r);
+                    }
+                }
             }
         }
         set_face(Face::Proggy);

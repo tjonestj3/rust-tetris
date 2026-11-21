@@ -1,7 +1,7 @@
 //! Dialog (Windows 98): outlines zoom out from the board like a window opening, and on the chord
 //! the message box is there: an information icon, JONES'IN! and an OK button. Then it bounces off
 //! across the screen, leaving a trail of copies of itself behind, and it's all gone at once when
-//! the celebration ends. Back-to-back: the box says so, and its title too.
+//! the word leaves. Back-to-back: the box says so, and its title too.
 
 use macroquad::prelude::*;
 

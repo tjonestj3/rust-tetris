@@ -16,7 +16,7 @@ const OFF_DOT: f32 = 0.1;
 pub(super) fn draw(s: &Scene) {
     let (t, pal, base) = (s.t, s.pal, s.fit.size);
     s.dim(0.55);
-    let w = (s.fit.total + base * 1.1).min(s.screen.w * 0.98);
+    let w = (s.fit.total + base * 1.1).min(s.screen.w - base * 0.6);
     let h = base * 1.7;
     let sign = Rect::new(s.cx - w / 2.0, s.cy - h / 2.0, w, h);
 

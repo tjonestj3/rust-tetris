@@ -244,8 +244,8 @@ pub async fn run() {
             AppState::Menu | AppState::GameOver if touch_mode => menu_system.content_bounds(),
             _ => FULL_CANVAS,
         };
-        // The legacy board's borders go past the board: leave room for them. On touch the room is
-        // kept in both looks, so the board stays the same size and place when the look changes.
+        // The legacy board's borders go past the board: leave room for them. On touch the same
+        // room is kept round the board in every theme, so it stays the same size and place.
         let around = if touch_mode { legacy_board_margins() } else { Margins::default() };
         let mut layout = Layout::compute(canvas_src, around);
         // The style the screen would have without the minimal look: the Duo's fold detection

@@ -35,7 +35,7 @@ pub(super) fn draw(s: &Scene) {
     // The card.
     let card_in = ease_out_cubic((t / 0.2).clamp(0.0, 1.0));
     let k = 0.88 + 0.12 * card_in;
-    let w = (s.fit.total + base * 1.0).min(s.screen.w * 0.97) * k;
+    let w = (s.fit.total + base * 1.0).min(s.screen.w - base * 0.6) * k;
     let h = base * if s.hot { 2.1 } else { 1.55 } * k;
     let card = Rect::new(s.cx - w / 2.0, s.cy - base * 0.78 * k - rise, w, h);
     let a = card_in * fade;

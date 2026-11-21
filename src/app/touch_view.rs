@@ -25,7 +25,7 @@ use super::fx::{self, Fx};
 struct Look(&'static Theme);
 
 impl Look {
-    /// Ruled text frames and the legacy text board (the Terminal theme).
+    /// Ruled text frames for the panels (the Terminal theme).
     fn terminal(self) -> bool {
         self.0.terminal
     }
