@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 
 use super::{bevel, hash01};
 use crate::graphics::style;
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const WALNUT: Color = Color::new(0.16, 0.10, 0.06, 1.0);
@@ -24,6 +25,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::Chess,
     name: "CHESS",
     terminal: false,
+    face: Face::Cinzel,
+    window: None,
     accents: [IVORY, OXBLOOD, BRASS, MOSS, HEATHER],
     label_ink: None,
     value: IVORY,
@@ -133,9 +136,16 @@ fn block(x: f32, y: f32, size: f32, color: Color) {
     let e = (size * 0.1).max(1.0).round();
     bevel(r, e, style::mix(base, WHITE, 0.3).with_alpha(a), style::mix(base, BLACK, 0.45).with_alpha(a), true);
     let grain = style::mix(base, BLACK, 0.25).with_alpha(0.35 * a);
-    for k in [0.38, 0.66] {
-        draw_line(r.x + e, r.y + r.h * k, r.right() - e, r.y + r.h * (k + 0.06), 1.0, grain);
+    for k in [0.2, 0.38, 0.66, 0.84] {
+        draw_line(r.x + e, r.y + r.h * k, r.right() - e, r.y + r.h * (k + 0.05), 1.0, grain);
     }
+    // A carved square in the middle: sunken, shadow on top and left.
+    let c = Rect::new(r.x + r.w * 0.27, r.y + r.h * 0.27, r.w * 0.46, r.h * 0.46);
+    draw_rectangle(c.x, c.y, c.w, c.h, style::mix(base, BLACK, 0.12).with_alpha(a));
+    let ce = (size * 0.06).max(1.0).round();
+    bevel(c, ce, style::mix(base, WHITE, 0.25).with_alpha(a), style::mix(base, BLACK, 0.4).with_alpha(a), false);
+    // Varnish: a soft sheen across the top.
+    draw_rectangle(r.x + e, r.y + e, r.w - 2.0 * e, r.h * 0.18, Color::new(1.0, 0.95, 0.85, 0.12 * a));
 }
 
 fn ghost(x: f32, y: f32, size: f32, _color: Color) {

@@ -7,6 +7,7 @@
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::text::Face;
 use super::themes;
 use crate::tetromino::TetrominoType;
 
@@ -18,6 +19,8 @@ pub enum ThemeId {
     Terminal,
     Arcade,
     Desktop98,
+    MacOsX,
+    Linux,
     Glass,
     WarmPaper,
     Chess,
@@ -39,6 +42,12 @@ pub struct Theme {
     pub name: &'static str,
     /// Terminal-style text frames and the legacy text board (the Terminal theme).
     pub terminal: bool,
+    /// The font everything on the play screen is drawn in.
+    pub face: Face,
+    /// Panels drawn as windows with a title bar (`None`: plain panels with their label inside):
+    /// draws the window titled `title` and returns the area inside it, below the title bar.
+    /// `size` is the label text size.
+    pub window: Option<fn(r: Rect, title: &str, accent: Color, size: f32, u: f32) -> Rect>,
     /// Cyan, pink, gold, green, violet, in [`Accent`] order.
     pub accents: [Color; 5],
     /// Every label in this colour, whatever its accent (`None`: labels take their accent).
@@ -111,11 +120,13 @@ fn standard_index(c: Color) -> Option<usize> {
 }
 
 /// Every theme, in the order Settings cycles through them.
-pub const ALL: [ThemeId; 7] = [
+pub const ALL: [ThemeId; 9] = [
     ThemeId::Neon,
     ThemeId::Terminal,
     ThemeId::Arcade,
     ThemeId::Desktop98,
+    ThemeId::MacOsX,
+    ThemeId::Linux,
     ThemeId::Glass,
     ThemeId::WarmPaper,
     ThemeId::Chess,
@@ -133,6 +144,8 @@ pub fn get(id: ThemeId) -> &'static Theme {
         ThemeId::Terminal => &themes::terminal::THEME,
         ThemeId::Arcade => &themes::arcade::THEME,
         ThemeId::Desktop98 => &themes::desktop98::THEME,
+        ThemeId::MacOsX => &themes::macosx::THEME,
+        ThemeId::Linux => &themes::linux::THEME,
         ThemeId::Glass => &themes::glass::THEME,
         ThemeId::WarmPaper => &themes::warm_paper::THEME,
         ThemeId::Chess => &themes::chess::THEME,

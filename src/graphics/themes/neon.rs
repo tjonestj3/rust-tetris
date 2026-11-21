@@ -4,6 +4,7 @@
 use macroquad::prelude::*;
 
 use crate::graphics::style::{self, alpha, CYAN, GOLD, GREEN, INK, PINK, VIOLET};
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const ORANGE: Color = Color::new(1.0, 0.54, 0.24, 1.0);
@@ -12,6 +13,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::Neon,
     name: "NEON",
     terminal: false,
+    face: Face::Proggy,
+    window: None,
     accents: [CYAN, PINK, GOLD, GREEN, VIOLET],
     label_ink: None,
     value: INK,

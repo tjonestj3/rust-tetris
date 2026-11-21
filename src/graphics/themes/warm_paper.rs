@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 
 use super::hash01;
 use crate::graphics::style;
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const CREAM: Color = Color::new(0.96, 0.94, 0.90, 1.0);
@@ -23,6 +24,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::WarmPaper,
     name: "WARM PAPER",
     terminal: false,
+    face: Face::Lora,
+    window: None,
     accents: [SLATE, CORAL, MUSTARD, SAGE, PLUM],
     label_ink: None,
     value: INK,
@@ -117,8 +120,19 @@ fn block(x: f32, y: f32, size: f32, color: Color) {
     let a = color.a;
     let fill = style::mix(style::mix(color, WARM_GREY, 0.25), CREAM, 0.2).with_alpha(a);
     let radius = size * 0.1;
+    // A slight ink shadow, as if stamped a touch off.
+    let off = (size * 0.05).max(1.0);
+    style::round_rect(Rect::new(r.x + off, r.y + off, r.w, r.h), radius, style::alpha(INK, 0.12 * a), style::alpha(INK, 0.12 * a));
     style::round_rect(r, radius, fill, fill);
-    style::round_outline(r, radius, (size * 0.05).max(1.0), style::mix(fill, INK, 0.35).with_alpha(a));
+    // Hand-inked hatching across the lower part.
+    let ink = style::mix(fill, INK, 0.3).with_alpha(0.35 * a);
+    let lw = (size * 0.035).max(1.0);
+    for k in [0.45_f32, 0.65, 0.85] {
+        let (x0, y0) = (r.x + r.w * (k - 0.35).max(0.05), r.bottom() - r.h * 0.08);
+        let (x1, y1) = (r.x + r.w * k.min(0.95), r.y + r.h * (1.0 - k).max(0.35));
+        draw_line(x0, y0, x1, y1, lw, ink);
+    }
+    style::round_outline(r, radius, (size * 0.05).max(1.0), style::mix(fill, INK, 0.45).with_alpha(a));
 }
 
 fn ghost(x: f32, y: f32, size: f32, color: Color) {

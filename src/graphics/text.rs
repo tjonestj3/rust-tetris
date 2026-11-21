@@ -26,8 +26,38 @@ use macroquad::prelude::{
     draw_texture_ex, vec2, Color, DrawTextureParams, FilterMode, Font, Image, Rect, TextDimensions, Texture2D,
 };
 
-/// The font: macroquad's default, ProggyClean.
-const FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/ProggyClean.ttf");
+/// A font the text can be drawn in. ProggyClean (macroquad's default) unless a theme picks
+/// another ([`set_face`]); the others are in `fonts/` (see its README for licences).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Face {
+    #[default]
+    Proggy,
+    Pixelify,
+    NotoSans,
+    Ubuntu,
+    PressStart,
+    Cinzel,
+    Lora,
+    Inter,
+}
+
+impl Face {
+    pub const ALL: [Face; 8] =
+        [Face::Proggy, Face::Pixelify, Face::NotoSans, Face::Ubuntu, Face::PressStart, Face::Cinzel, Face::Lora, Face::Inter];
+
+    fn bytes(self) -> &'static [u8] {
+        match self {
+            Face::Proggy => include_bytes!("../../assets/fonts/ProggyClean.ttf"),
+            Face::Pixelify => include_bytes!("../../fonts/PixelifySans.ttf"),
+            Face::NotoSans => include_bytes!("../../fonts/NotoSans.ttf"),
+            Face::Ubuntu => include_bytes!("../../fonts/Ubuntu-Medium.ttf"),
+            Face::PressStart => include_bytes!("../../fonts/PressStart2P.ttf"),
+            Face::Cinzel => include_bytes!("../../fonts/Cinzel.ttf"),
+            Face::Lora => include_bytes!("../../fonts/Lora.ttf"),
+            Face::Inter => include_bytes!("../../fonts/Inter.ttf"),
+        }
+    }
+}
 
 /// The glyph texture's side, in pixels: every iPhone GPU takes 4096.
 const ATLAS_SIZE: u16 = 2048;
@@ -37,10 +67,12 @@ const GAP: u16 = 2;
 
 thread_local! {
     static PIXELS_PER_UNIT: Cell<f32> = const { Cell::new(1.0) };
-    static FONT: fontdue::Font = fontdue::Font::from_bytes(FONT_BYTES, fontdue::FontSettings::default())
-        .expect("the bundled font loads");
-    /// Glyph sizes and placement, by (character, pixel size).
-    static GLYPHS: RefCell<HashMap<(char, u16), Glyph>> = RefCell::new(HashMap::new());
+    /// The fonts loaded so far (each the first time it's drawn in).
+    static FONTS: RefCell<HashMap<Face, fontdue::Font>> = RefCell::new(HashMap::new());
+    /// The font text is drawn in now.
+    static FACE: Cell<Face> = const { Cell::new(Face::Proggy) };
+    /// Glyph sizes and placement, by (font, character, pixel size).
+    static GLYPHS: RefCell<HashMap<(Face, char, u16), Glyph>> = RefCell::new(HashMap::new());
     static ATLAS: RefCell<Option<Atlas>> = const { RefCell::new(None) };
 }
 
@@ -107,6 +139,27 @@ pub fn begin_frame() {
     });
 }
 
+/// Draw (and measure) text in `face` from here on.
+pub fn set_face(face: Face) {
+    FACE.with(|f| f.set(face));
+}
+
+pub fn face() -> Face {
+    FACE.with(|f| f.get())
+}
+
+/// Use the current font: `f` gets it, loaded if this is its first use.
+fn with_font<R>(f: impl FnOnce(&fontdue::Font) -> R) -> R {
+    let face = face();
+    FONTS.with(|fonts| {
+        let mut fonts = fonts.borrow_mut();
+        let font = fonts.entry(face).or_insert_with(|| {
+            fontdue::Font::from_bytes(face.bytes(), fontdue::FontSettings::default()).expect("the bundled font loads")
+        });
+        f(font)
+    })
+}
+
 /// Screen pixels per drawing unit under the current camera (1 for the default camera).
 pub fn set_pixels_per_unit(scale: f32) {
     PIXELS_PER_UNIT.with(|s| s.set(if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }));
@@ -137,8 +190,8 @@ fn raster(size: f32) -> (u16, f32) {
 /// The glyph for `ch` at `px` (its measurements; not necessarily in the texture yet).
 fn glyph(ch: char, px: u16) -> Glyph {
     GLYPHS.with(|g| {
-        *g.borrow_mut().entry((ch, px)).or_insert_with(|| {
-            let m = FONT.with(|f| f.metrics(ch, px as f32));
+        *g.borrow_mut().entry((face(), ch, px)).or_insert_with(|| {
+            let m = with_font(|f| f.metrics(ch, px as f32));
             Glyph {
                 advance: m.advance_width,
                 offset_x: m.xmin as f32,
@@ -169,7 +222,7 @@ fn placed(ch: char, px: u16, g: &Glyph) -> Option<(Texture2D, Rect)> {
             return Some((atlas.texture.clone(), rect));
         }
         let (x, y) = atlas.packer.place(g.width, g.height)?;
-        let (m, coverage) = FONT.with(|f| f.rasterize(ch, px as f32));
+        let (m, coverage) = with_font(|f| f.rasterize(ch, px as f32));
         let (w, h) = (m.width as u16, m.height as u16);
         let image = Image {
             bytes: coverage.iter().flat_map(|&c| [255, 255, 255, c]).collect(),
@@ -179,7 +232,7 @@ fn placed(ch: char, px: u16, g: &Glyph) -> Option<(Texture2D, Rect)> {
         atlas.texture.update_part(&image, x as i32, y as i32, w as i32, h as i32);
         let rect = Rect::new(x as f32, y as f32, w as f32, h as f32);
         GLYPHS.with(|gs| {
-            if let Some(stored) = gs.borrow_mut().get_mut(&(ch, px)) {
+            if let Some(stored) = gs.borrow_mut().get_mut(&(face(), ch, px)) {
                 stored.place = Some(rect);
             }
         });
@@ -263,5 +316,22 @@ mod tests {
         assert!((sharp.width / small.width - 1.0).abs() < 0.1);
         set_pixels_per_unit(1.0);
         assert_eq!(measure_text("", None, 20, 1.0).width, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod face_tests {
+    use super::*;
+
+    #[test]
+    fn every_face_loads_and_has_the_game_s_characters() {
+        for face in Face::ALL {
+            set_face(face);
+            for ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcxyz!'-:".chars() {
+                let m = with_font(|f| f.metrics(ch, 32.0));
+                assert!(m.width > 0 && m.advance_width > 0.0, "{face:?} has no '{ch}'");
+            }
+        }
+        set_face(Face::Proggy);
     }
 }

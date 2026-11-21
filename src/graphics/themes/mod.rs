@@ -4,6 +4,8 @@ pub mod arcade;
 pub mod chess;
 pub mod desktop98;
 pub mod glass;
+pub mod linux;
+pub mod macosx;
 pub mod neon;
 pub mod terminal;
 pub mod warm_paper;

@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 
 use super::hash01;
 use crate::graphics::style;
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const CYAN: Color = Color::new(0.0, 0.94, 1.0, 1.0);
@@ -20,6 +21,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::Arcade,
     name: "ARCADE",
     terminal: false,
+    face: Face::PressStart,
+    window: None,
     accents: [CYAN, PINK, GOLD, GREEN, VIOLET],
     label_ink: None,
     value: WHITE,
@@ -146,6 +149,13 @@ fn block(x: f32, y: f32, size: f32, color: Color) {
     let e = (size * 0.12).max(1.0).round();
     super::bevel(r, e, style::mix(color, WHITE, 0.5).with_alpha(a), style::mix(color, BLACK, 0.5).with_alpha(a), true);
     draw_rectangle(r.x + e, r.y + e, e, e, Color::new(1.0, 1.0, 1.0, 0.85 * a));
+    // A hard black outline, like sprite art.
+    let o = (size * 0.06).max(1.0).round();
+    let ink = Color::new(0.0, 0.0, 0.0, 0.9 * a);
+    draw_rectangle(r.x - o, r.y - o, r.w + 2.0 * o, o, ink);
+    draw_rectangle(r.x - o, r.bottom(), r.w + 2.0 * o, o, ink);
+    draw_rectangle(r.x - o, r.y, o, r.h, ink);
+    draw_rectangle(r.right(), r.y, o, r.h, ink);
 }
 
 /// Where the piece lands: corner brackets in its colour.

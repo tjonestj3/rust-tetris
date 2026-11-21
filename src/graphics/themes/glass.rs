@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 
 use super::soft_circle;
 use crate::graphics::style;
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const BLUE: Color = Color::new(0.04, 0.52, 1.0, 1.0);
@@ -21,6 +22,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::Glass,
     name: "GLASS",
     terminal: false,
+    face: Face::Inter,
+    window: None,
     accents: [BLUE, PINK, ORANGE, GREEN, PURPLE],
     label_ink: None,
     value: INK,
@@ -114,8 +117,18 @@ fn block(x: f32, y: f32, size: f32, color: Color) {
     let radius = size * 0.28;
     let a = color.a;
     style::round_rect(Rect::new(r.x, r.y + size * 0.05, r.w, r.h), radius, Color::new(0.1, 0.1, 0.3, 0.10 * a), Color::new(0.1, 0.1, 0.3, 0.0));
-    style::round_rect(r, radius, style::mix(color, WHITE, 0.35).with_alpha(a), color);
-    style::round_rect(Rect::new(r.x + r.w * 0.15, r.y + r.h * 0.1, r.w * 0.7, r.h * 0.28), radius * 0.6, Color::new(1.0, 1.0, 1.0, 0.4 * a), Color::new(1.0, 1.0, 1.0, 0.0));
+    // See-through: the board shows a little through it.
+    style::round_rect(r, radius, style::mix(color, WHITE, 0.35).with_alpha(0.88 * a), color.with_alpha(0.82 * a));
+    // Light gathering at the bottom, as through glass.
+    style::round_rect(
+        Rect::new(r.x + r.w * 0.1, r.bottom() - r.h * 0.38, r.w * 0.8, r.h * 0.32),
+        radius * 0.7,
+        style::mix(color, WHITE, 0.6).with_alpha(0.0),
+        style::mix(color, WHITE, 0.6).with_alpha(0.55 * a),
+    );
+    style::round_rect(Rect::new(r.x + r.w * 0.15, r.y + r.h * 0.1, r.w * 0.7, r.h * 0.28), radius * 0.6, Color::new(1.0, 1.0, 1.0, 0.5 * a), Color::new(1.0, 1.0, 1.0, 0.0));
+    // A crisp bright rim.
+    style::round_outline(r, radius, (size * 0.035).max(1.0), Color::new(1.0, 1.0, 1.0, 0.7 * a));
 }
 
 fn ghost(x: f32, y: f32, size: f32, color: Color) {

@@ -5,6 +5,7 @@
 use macroquad::prelude::*;
 
 use crate::graphics::style::{self, TERM_DIM, TERM_GREEN};
+use crate::graphics::text::Face;
 use crate::graphics::theme::{FxPalette, Theme, ThemeId};
 
 const PALE: Color = Color::new(0.7, 1.0, 0.7, 1.0);
@@ -13,6 +14,8 @@ pub const THEME: Theme = Theme {
     id: ThemeId::Terminal,
     name: "TERMINAL",
     terminal: true,
+    face: Face::Proggy,
+    window: None,
     accents: [TERM_GREEN; 5],
     label_ink: Some(TERM_DIM),
     value: TERM_GREEN,

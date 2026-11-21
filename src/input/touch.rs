@@ -441,6 +441,8 @@ fn draw_button(b: &Button, u: f32) {
     use crate::graphics::theme::{self, Accent};
     let r = b.rect;
     let t = theme::get(b.theme);
+    let menu_face = crate::graphics::text::face();
+    crate::graphics::text::set_face(t.face);
     let ink = t.value;
     let accent = match b.label {
         "II" => Accent::Pink,
@@ -460,6 +462,7 @@ fn draw_button(b: &Button, u: f32) {
         let (bw, bh) = (r.w * 0.14, r.h * 0.45);
         draw_rectangle(cx - bw * 1.6, cy - bh / 2.0, bw, bh, ink);
         draw_rectangle(cx + bw * 0.6, cy - bh / 2.0, bw, bh, ink);
+        crate::graphics::text::set_face(menu_face);
         return;
     }
     // As big as fits.
@@ -470,6 +473,7 @@ fn draw_button(b: &Button, u: f32) {
     }
     let dims = measure_text(b.label, None, size as u16, 1.0);
     draw_text(b.label, cx - dims.width / 2.0, cy + dims.offset_y / 2.0, size, ink);
+    crate::graphics::text::set_face(menu_face);
 }
 
 #[cfg(test)]

@@ -84,6 +84,9 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     let p = &layout.play;
     let look = Look(theme::get(overlay.theme));
     let legacy = look.terminal();
+    // The theme's font for everything on this screen; the menus keep theirs.
+    let menu_face = crate::graphics::text::face();
+    crate::graphics::text::set_face(look.0.face);
 
     let _ = background;
     screen_camera();
@@ -170,6 +173,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         _ => {}
     }
     screen_camera();
+    crate::graphics::text::set_face(menu_face);
 }
 
 /// The board: a dark glass well with a glowing edge, the settled blocks, where the piece will
@@ -223,6 +227,11 @@ fn panel(r: Rect, label: &str, accent: Color, p: &PlayLayout, u: f32, look: Look
         // The label is in the top border.
         let inside = style::term_frame(r, label, size, TERM_GREEN, TERM_GREEN);
         return Rect::new(r.x + pad, inside.y + pad * 0.3, r.w - 2.0 * pad, (inside.h - pad * 0.6).max(0.0));
+    }
+    if let Some(window) = look.0.window {
+        // The label is the window's title.
+        let inside = window(r, label, accent, size, u);
+        return Rect::new(inside.x + pad * 0.7, inside.y + pad * 0.5, (inside.w - 1.4 * pad).max(0.0), (inside.h - pad).max(0.0));
     }
     (look.0.panel)(r, accent, u);
     draw_text(label, r.x + pad, r.y + pad + size * 0.8, size, accent);
@@ -315,15 +324,27 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
     let label = label_size(p, u);
     let r = match look.terminal() {
         false => {
-            let r = p.stats;
-            (look.0.panel)(r, look.accent(Accent::Gold), u);
+            let r = match look.0.window {
+                // A window titled for the game, the score inside it.
+                Some(window) => {
+                    let inside = window(p.stats, "Rust Tetris", look.accent(Accent::Gold), label, u);
+                    Rect::new(inside.x, inside.y - pad * 0.4, inside.w, inside.h + pad * 0.4)
+                }
+                None => {
+                    (look.0.panel)(p.stats, look.accent(Accent::Gold), u);
+                    p.stats
+                }
+            };
             if ghosts > 0 {
                 // The panel is a button (input::touch) while there's a ghost block to use: a
                 // violet glow that breathes, brighter while aiming.
                 let pulse = (get_time() as f32 * 3.0).sin() * 0.5 + 0.5;
                 let strength = if aiming { 0.45 + 0.30 * pulse } else { 0.25 + 0.20 * pulse };
                 style::halo(r, 10.0 * u, 10.0 * u, look.accent(Accent::Violet), strength);
-                style::round_outline(r, 10.0 * u, (2.0 * u).max(1.5), alpha(look.accent(Accent::Violet), 0.75 + 0.25 * pulse));
+                // A rounded outline only where the panel is rounded (not round a window).
+                if look.0.window.is_none() {
+                    style::round_outline(r, 10.0 * u, (2.0 * u).max(1.5), alpha(look.accent(Accent::Violet), 0.75 + 0.25 * pulse));
+                }
             }
             r
         }
