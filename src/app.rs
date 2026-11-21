@@ -448,6 +448,7 @@ pub async fn run() {
                             }
                             (t * 2.0).min(1.0).min((12.0 - t).max(0.0))
                         };
+                        effects.palette = crate::graphics::theme::get(touch_view::theme_of(current_game)).fx;
                         let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout, fx: &effects };
                         touch_view::render(current_game, &background_texture, &layout, &overlay);
                     } else {

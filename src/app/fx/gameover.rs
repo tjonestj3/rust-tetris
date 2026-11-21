@@ -55,7 +55,7 @@ impl GameOverFx {
         draw_rectangle(s.x, s.y, s.w, s.h, style::alpha(pal.dim, 0.45 * rise));
         let y = card.y + (s.bottom() - card.y) * (1.0 - back(rise));
         let r = Rect::new(card.x, y, card.w, card.h);
-        style::panel(r, pal.card_edge, u);
+        (pal.panel)(r, pal.card_edge, u);
         style::round_outline(r, 10.0 * u, (2.0 * u).max(1.0), style::alpha(pal.card_edge, 0.9));
 
         // GAME OVER in the word's colours, letter by letter.

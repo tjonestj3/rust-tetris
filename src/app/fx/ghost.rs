@@ -55,7 +55,7 @@ pub fn draw_throw(game: &Game, board: Rect, cell: f32, now: f64, pal: &FxPalette
             draw_circle(at.x + cell / 2.0, at.y + cell / 2.0, r, color);
         }
         let head = from + (target - from) * k;
-        style::block(head.x, head.y, cell, GHOST);
+        (pal.block)(head.x, head.y, cell, GHOST);
     }
 }
 

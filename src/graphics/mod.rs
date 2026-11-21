@@ -5,6 +5,8 @@ pub mod utils;
 
 pub mod style;
 pub mod text;
+pub mod theme;
+pub mod themes;
 pub mod view;
 
 pub use colors::*;
