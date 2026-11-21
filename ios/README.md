@@ -26,8 +26,26 @@ All gestures (`src/input/touch.rs`); the only button is pause:
 | Flick up | Hold |
 | **II** (beside the board) | Pause: the gestures, Resume, Menu |
 
-Menus: tap an option. Settings: tap Sound or Volume to change it, anywhere else to go back. A high
-score brings up the keyboard; Return saves it.
+Menus: tap an option. Settings: tap Sound, Volume, Legacy or Haptics to change it, anywhere else
+to go back. A high score brings up the keyboard; Return saves it.
+
+### Haptics
+
+`src/haptics.rs` picks one haptic a frame (the strongest asked for) and `App/Haptics.m` plays it
+with Core Haptics (UIKit impact feedback on phones without it):
+
+| Event | Feel |
+|---|---|
+| Hard drop | a sharp tap |
+| 1-3 lines | a tap per line, rising |
+| Combo | a quick run of rising taps, longer with the combo |
+| Tetris | a heavy double with a rumble between |
+| T-spin | three sharp ticks |
+| Perfect clear | a rumble and three rising taps |
+| Ghost-block fireball | a soft whoosh on the throw, a thud on impact |
+| Game over | a low rumble |
+
+Clears are felt when the lines flash; a perfect clear when they're gone. Off in Settings.
 
 The first game shows a short gesture hint over the board for ten seconds.
 
@@ -120,6 +138,10 @@ it is enough to sort out a layout problem on a device.
 - **Music**: the build swaps the 48 kHz background music for a 24 kHz copy inside the app
   (`shrink-music.sh`), halving its size and memory. The repo's file is unchanged.
 - **No Quit** on iOS (apps don't quit themselves).
+- **Objective-C** (`App/*.m`, ARC): the bits that are much simpler in Objective-C than through
+  Rust's `objc` crate (Core Haptics patterns, and blocks). Rust declares their C functions for
+  `target_os = "ios"` only; desktop builds get no-ops. Linux CI can't compile them: the first
+  check is the Mac build in `ios.yml`.
 
 ## Maintenance
 

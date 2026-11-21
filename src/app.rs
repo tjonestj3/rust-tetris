@@ -207,6 +207,7 @@ pub async fn run() {
         // Update audio system with current settings (applies to all states)
         audio_system.set_audio_enabled(menu_system.settings.sound_enabled);
         audio_system.set_master_volume(menu_system.settings.volume);
+        crate::haptics::set_enabled(menu_system.settings.haptics_enabled);
         
         match app_state {
             AppState::Menu => {
@@ -260,6 +261,9 @@ pub async fn run() {
             
             AppState::Playing => {
                 if let Some(ref mut current_game) = game {
+                    // Before input, which can start a clear (a hard drop) or a throw.
+                    let felt = FeltState::of(current_game);
+
                     // Handle game input
                     handle_game_input(current_game, &audio_system, &mut app_state, &mut menu_system);
                     
@@ -296,6 +300,7 @@ pub async fn run() {
                     
                     // Detect and play audio for game events
                     detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+                    felt.haptics_since(current_game);
                     
                     // Auto-save periodically during gameplay
                     if current_game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
@@ -372,6 +377,7 @@ pub async fn run() {
         if touch_mode {
             touch::draw(&layout);
         }
+        crate::haptics::flush();
 
         // TETRIS_SCREENSHOT=out.png saves the 30th frame and quits (for checking layouts).
         #[cfg(not(target_os = "ios"))]
@@ -530,6 +536,7 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
     if gestures.hard_drop {
         game.hard_drop();
         audio_system.play_sound(SoundType::HardDrop);
+        crate::haptics::play(crate::haptics::Haptic::HardDrop);
         return;
     }
     if gestures.hold && game.hold_piece() {
@@ -556,6 +563,7 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
     if key_pressed(KeyCode::Space) {
         game.hard_drop();
         audio_system.play_sound(SoundType::HardDrop);
+        crate::haptics::play(crate::haptics::Haptic::HardDrop);
     }
     
     // Hold piece (C key)
@@ -2613,6 +2621,52 @@ fn draw_enhanced_board_with_data(board: &Board) {
     );
 }
 
+
+/// What the game was doing before a frame's input and update, to tell what happened since.
+struct FeltState {
+    clearing: bool,
+    clears: u32,
+    throwing: bool,
+    state: GameState,
+}
+
+impl FeltState {
+    fn of(game: &Game) -> Self {
+        Self {
+            clearing: game.is_clearing_lines(),
+            clears: game.scoring_system.clears(),
+            throwing: game.is_ghost_throw_active(),
+            state: game.state,
+        }
+    }
+
+    /// Ask for the haptics for what happened since (crate::haptics plays the strongest).
+    fn haptics_since(&self, game: &Game) {
+        use crate::haptics::{for_clear, play, Haptic};
+        if game.state == GameState::GameOver {
+            if self.state != GameState::GameOver {
+                play(Haptic::GameOver);
+            }
+            return;
+        }
+        // A clear starting, with its flash and sound. The combo count is still the clears in a
+        // row before this one: it goes up when the clear is scored, at the end of the animation.
+        if !self.clearing && game.is_clearing_lines() {
+            play(for_clear(game.clearing_lines.len() as u32, game.lock_was_t_spin, game.scoring_system.current_combo()));
+        }
+        // A perfect clear is only known once the lines are gone.
+        if game.scoring_system.clears() != self.clears {
+            if game.scoring_system.last_clear().is_some_and(|c| c.perfect) {
+                play(Haptic::PerfectClear);
+            }
+        }
+        match (self.throwing, game.is_ghost_throw_active()) {
+            (false, true) => play(Haptic::FireballThrow),
+            (true, false) => play(Haptic::FireballHit),
+            _ => {}
+        }
+    }
+}
 
 /// Detect and play audio for game events
 fn detect_and_play_audio_events(

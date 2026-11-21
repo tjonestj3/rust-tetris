@@ -8,6 +8,7 @@ pub mod audio;
 pub mod board;
 pub mod game;
 pub mod graphics;
+pub mod haptics;
 pub mod input;
 pub mod leaderboard;
 pub mod menu;
