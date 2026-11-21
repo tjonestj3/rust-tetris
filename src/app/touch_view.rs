@@ -19,6 +19,7 @@ use crate::graphics::text::{draw_text, measure_text};
 use crate::graphics::view::{map_camera, screen_camera, HudStyle, Layout, PlayLayout, CANVAS_BOARD};
 use crate::tetromino::{Tetromino, TetrominoType};
 use super::duo::Callout;
+use super::fx::{self, Fx};
 
 const LABEL: Color = SOFT_INK;
 const VALUE: Color = INK;
@@ -79,6 +80,8 @@ pub(super) struct Overlay<'a> {
     pub countdown: Option<f32>,
     /// The last special clear's callout (shown in the open Duo's feed).
     pub callout: &'a Callout,
+    /// The effects: hard drop, line clear, JONES'IN!.
+    pub fx: &'a Fx,
 }
 
 /// Draw the game screen.
@@ -107,17 +110,14 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         }
     } else {
         style::backdrop(get_time() as f32);
-        draw_board(game, p, layout.unit);
-        if game.is_clearing_lines() {
-            map_camera(CANVAS_BOARD, p.board);
-            draw_line_clear_animation(game);
-        }
+        draw_board(game, p, layout.unit, overlay.fx);
         map_camera(CANVAS_BOARD, p.board);
     }
     if game.is_ghost_cursor_visible() {
         draw_ghost_block_cursor(game);
     }
-    if game.is_ghost_throw_active() {
+    // The legacy look keeps its stick figure; the other draws a comet (super::fx).
+    if legacy && game.is_ghost_throw_active() && game.state != GameState::GameOver {
         draw_ghost_throw_animation(game);
     }
 
@@ -138,7 +138,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         let color = look.pick(alpha(PINK, 0.7), TERM_DIM);
         draw_text("TAP TO HOLD", hold.center().x - w / 2.0, hold.center().y + size * 0.35, size, color);
     }
-    draw_stats(game, p, u, look);
+    draw_stats(game, p, u, look, overlay.fx);
     if let Some(feed) = p.feed {
         draw_feed(game, feed, p, u, look, overlay.callout);
     }
@@ -148,10 +148,16 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     }
 
     // The TETRIS celebration, over everything, at the size of the whole canvas fitted to the screen.
-    if game.is_tetris_celebration_active() {
-        map_camera(layout.canvas_src, layout.game);
-        draw_tetris_celebration(game);
-        screen_camera();
+    // Not behind the game-over card: the celebration's clock stops with the game.
+    if game.is_tetris_celebration_active() && game.state != GameState::GameOver {
+        if legacy {
+            map_camera(layout.canvas_src, layout.game);
+            draw_tetris_celebration(game);
+            screen_camera();
+        } else {
+            screen_camera();
+            fx::jonesin::draw(game, layout, &overlay.fx.palette);
+        }
     }
 
     match game.state {
@@ -159,7 +165,10 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
             Some(left) => draw_countdown(p, u, left, look),
             None => draw_pause(layout, look),
         },
-        GameState::GameOver => draw_game_over(game, layout, look),
+        GameState::GameOver => {
+            screen_camera();
+            overlay.fx.draw_game_over(game, layout, overlay.fx.now());
+        }
         _ => {}
     }
     screen_camera();
@@ -167,9 +176,12 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
 
 /// The board: a dark glass well with a glowing edge, the settled blocks, where the piece will
 /// land, and the piece.
-fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
-    let b = p.board;
-    let cell = b.w / BOARD_WIDTH as f32;
+fn draw_board(game: &Game, p: &PlayLayout, u: f32, fx: &Fx) {
+    let now = fx.now();
+    let cell = p.board.w / BOARD_WIDTH as f32;
+    // The board kicks with a hard drop and with JONES'IN! (super::fx).
+    let kick = fx.board_offset(game, now, cell);
+    let b = Rect::new(p.board.x + kick.x, p.board.y + kick.y, p.board.w, p.board.h);
     let pad = (3.0 * u).round();
     let well = Rect::new(b.x - pad, b.y - pad, b.w + 2.0 * pad, b.h + 2.0 * pad);
     let radius = 8.0 * u;
@@ -186,10 +198,13 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
         draw_rectangle(b.x, (b.y + y as f32 * cell).round(), b.w, 1.0, Color::new(0.8, 0.85, 1.0, 0.06));
     }
 
+    fx.draw_under(b, cell, now);
     for y in 0..VISIBLE_HEIGHT {
         for x in 0..BOARD_WIDTH {
             if let Some(color) = game.board.get_cell(x as i32, (y + BUFFER_HEIGHT) as i32).and_then(|c| c.color()) {
-                style::block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color);
+                if let Some(look) = fx.cell(game, x, y + BUFFER_HEIGHT, now, cell) {
+                    fx::draw_block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color, look, &fx.palette);
+                }
             }
         }
     }
@@ -211,6 +226,7 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
     }
 
     style::round_outline(well, radius, (2.0 * u).max(1.0), alpha(CYAN, 0.85));
+    fx.draw_over(game, b, cell, now);
 }
 
 /// A panel's frame and label; returns the area left for its content.
@@ -259,7 +275,8 @@ fn fit_size(text: &str, size: f32, max_w: f32) -> f32 {
     if w > max_w && w > 0.0 { size * max_w / w } else { size }
 }
 
-fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
+fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
+    let pop = fx.level_pop(fx.now());
     let ghosts = game.ghost_blocks_available;
     let aiming = game.ghost_block_placement_mode;
     // Ghost blocks blink in the legacy look, faster while aiming.
@@ -308,7 +325,11 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
         y += label + pad * 0.2;
         centered(&score, cx, y + score_size * 0.8, score_size, look.value());
         y += score_size + pad * 0.4;
-        centered(&sub, cx, y + sub_size * 0.8, sub_size, look.pick(GREEN, TERM_GREEN));
+        // The level just went up: the line pops in gold, with a ring.
+        let sub_color = style::mix(look.pick(GREEN, TERM_GREEN), look.pick(GOLD, TERM_GREEN), pop);
+        let sub_big = sub_size * (1.0 + 0.15 * pop);
+        centered(&sub, cx, y + sub_big * 0.8, sub_big, sub_color);
+        fx.level_ring(vec2(cx, y + sub_size * 0.5), sub_size * 2.0, fx.now());
         return;
     }
 
@@ -328,7 +349,11 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
         draw_text("LEVEL", x, y + label * 0.8, label, look.label(GREEN));
         draw_text("LINES", x + half, y + label * 0.8, label, look.label(CYAN));
         y += label + pad * 0.3;
-        draw_text(&level, x, y + value_size * 0.8, value_size, look.value());
+        // The level just went up: the number pops in gold, with a ring.
+        let level_size = value_size * (1.0 + 0.35 * pop);
+        draw_text(&level, x, y + level_size * 0.8, level_size, style::mix(look.value(), look.pick(GOLD, TERM_GREEN), pop));
+        let lw = measure_text(&level, None, value_size as u16, 1.0).width;
+        fx.level_ring(vec2(x + lw / 2.0, y + value_size * 0.45), value_size, fx.now());
         draw_text(&lines, x + half, y + value_size * 0.8, value_size, look.value());
         y += value_size + pad * 0.6;
 
@@ -539,27 +564,6 @@ fn draw_pause(layout: &Layout, look: Look) {
         style::panel(card, VIOLET, u);
     }
     gesture_rows(&GESTURES, s.center().x, block_top, row_h, size, 1.0, look);
-}
-
-fn draw_game_over(game: &Game, layout: &Layout, look: Look) {
-    screen_camera();
-    let (s, u) = (layout.safe, layout.unit);
-    let shade = look.pick(Color::new(0.05, 0.02, 0.16, 0.78), Color::new(0.0, 0.0, 0.0, 0.86));
-    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, shade);
-    let size = fit_size("GAME OVER", 52.0 * u, s.w * 0.85);
-    let card_w = (s.w * 0.86).min(size * 7.0);
-    let card = Rect::new(s.center().x - card_w / 2.0, s.center().y - size * 1.6, card_w, size * 3.4);
-    match look {
-        Look::Modern => style::panel(card, PINK, u),
-        Look::Legacy => {
-            style::term_frame(card, "", fit_size("<==>", 15.0 * u, card_w), TERM_GREEN, TERM_GREEN);
-        }
-    }
-    title_text("GAME OVER", s.center().x, card.y + size * 1.35, size, u, look);
-    centered("SCORE", s.center().x, card.y + size * 2.15, fit_size("SCORE", 16.0 * u, card_w), look.label(GOLD));
-    let score = game.score.to_string();
-    let big = fit_size(&score, 30.0 * u, card_w * 0.8);
-    centered(&score, s.center().x, card.y + size * 2.15 + big * 1.1, big, look.value());
 }
 
 /// A title in the piece colours, one letter each, with a soft shadow; in the legacy look, green

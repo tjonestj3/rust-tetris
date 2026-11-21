@@ -314,6 +314,12 @@ impl MenuSystem {
     
     /// Handle input for name entry screen
     fn handle_name_entry_input(&mut self) -> MenuAction {
+        // Touch: the SAVE and SKIP buttons do what Return and Escape do.
+        let (save_tap, skip_tap) = match (canvas_tap(), self.touch_name_buttons()) {
+            (Some(t), Some((save, skip))) => (save.contains(t), skip.contains(t)),
+            _ => (false, false),
+        };
+
         // Handle character input
         if let Some(character) = get_char_pressed() {
             if character.is_ascii_alphanumeric() || character == ' ' {
@@ -329,7 +335,7 @@ impl MenuSystem {
         }
         
         // Handle enter (submit name)
-        if key_pressed(KeyCode::Enter) {
+        if key_pressed(KeyCode::Enter) || save_tap {
             if let MenuState::NameEntry { score, level, lines_cleared, game_time } = self.state {
                 let name = if self.name_input.is_empty() {
                     "ANONYMOUS".to_string()
@@ -359,7 +365,7 @@ impl MenuSystem {
         }
         
         // Handle escape (cancel name entry)
-        if key_pressed(KeyCode::Escape) {
+        if key_pressed(KeyCode::Escape) || skip_tap {
             self.state = MenuState::Main;
             self.selected_option = 0;
             self.name_input.clear();
@@ -847,14 +853,18 @@ impl MenuSystem {
         // Draw congratulations title
         let title = "NEW HIGH SCORE!";
         let title_size = 56.0;
-        let title_width = measure_text(title, None, title_size as u16, 1.0).width;
+        // The letters are placed a fixed step apart (below): centre that, not the font's spacing.
+        let step = title_size * 0.6;
+        let last = title.chars().last().map(String::from).unwrap_or_default();
+        let title_width = step * (title.chars().count() - 1) as f32
+            + measure_text(&last, None, title_size as u16, 1.0).width;
         let title_x = (WINDOW_WIDTH as f32 - title_width) / 2.0;
         let title_y = 120.0;
         
         // Animated title with rainbow colors
         let time_offset = self.animation_timer * 2.0;
         for (i, c) in title.chars().enumerate() {
-            let char_x = title_x + (i as f32 * title_size * 0.6);
+            let char_x = title_x + i as f32 * step;
             let hue = ((i as f64 * 0.2) + time_offset) % 6.0;
             let rainbow_color = self.hsv_to_rgb(hue, 1.0, 1.0);
             let bounce = (self.animation_timer * 3.0 + i as f64 * 0.3).sin() * 5.0;
@@ -943,8 +953,8 @@ impl MenuSystem {
         self.draw_text_with_outline(&input_text, input_x, input_y, input_size, input_color);
         
         // Draw instructions
-        let instruction = if touch { "Type your name, then tap Return" } else { "Press ENTER to confirm - ESCAPE to cancel" };
-        let inst_y = if touch { 500.0 } else { WINDOW_HEIGHT as f32 - 80.0 };
+        let instruction = if touch { "Type your name, then tap SAVE" } else { "Press ENTER to confirm - ESCAPE to cancel" };
+        let inst_y = if touch { 540.0 } else { WINDOW_HEIGHT as f32 - 80.0 };
         let inst_size = if touch { 24.0 } else { 20.0 };
         let inst_x = (WINDOW_WIDTH as f32 - measure_text(instruction, None, inst_size as u16, 1.0).width) / 2.0;
 
@@ -955,10 +965,30 @@ impl MenuSystem {
             let rank_text = format!("This will be rank #{} on the leaderboard!", rank);
             let rank_width = measure_text(&rank_text, None, 22, 1.0).width;
             let rank_x = (WINDOW_WIDTH as f32 - rank_width) / 2.0;
-            let rank_y = 450.0;
+            let rank_y = if touch { 505.0 } else { 450.0 };
             
             self.draw_text_with_outline(&rank_text, rank_x, rank_y, 22.0, Color::new(1.0, 0.9, 0.3, 1.0));
         }
+
+        if let Some((save, skip)) = self.touch_name_buttons() {
+            use crate::graphics::style::{self, mix, CYAN, PINK};
+            for (r, label, accent) in [(save, "SAVE", CYAN), (skip, "SKIP", PINK)] {
+                style::panel(r, accent, 1.0);
+                let size = 26.0;
+                let w = measure_text(label, None, size as u16, 1.0).width;
+                draw_text(label, r.center().x - w / 2.0, r.center().y + size * 0.35, size, mix(accent, WHITE, 0.6));
+            }
+        }
+    }
+
+    /// Touch: the name entry's SAVE and SKIP buttons, just under the name box, so they stay above
+    /// the on-screen keyboard. `None` on desktop (Enter and Escape).
+    fn touch_name_buttons(&self) -> Option<(Rect, Rect)> {
+        crate::platform::is_touch_device().then(|| {
+            let (w, h, gap, y) = (190.0, 56.0, 20.0, 400.0);
+            let left = WINDOW_WIDTH as f32 / 2.0 - w - gap / 2.0;
+            (Rect::new(left, y, w, h), Rect::new(left + w + gap, y, w, h))
+        })
     }
     
     /// The screen's background: the game's backdrop, dimmed by `dim`. On touch screens it covers

@@ -11,6 +11,7 @@ use crate::graphics::view::{map_camera, Layout, Margins, FULL_CANVAS};
 use crate::input::touch::{self, key_down, key_pressed, Mode};
 
 mod duo;
+mod fx;
 mod touch_view;
 
 /// The longest frame time the game is given, in seconds: a slow frame slows the game down a
@@ -54,7 +55,9 @@ pub fn window_conf() -> Conf {
 }
 
 /// How touches are read on the current screen.
-fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, counting_down: bool) -> Mode {
+/// `game_over_card`: once the game-over card is up, whether the score makes the leaderboard
+/// (super::fx).
+fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, counting_down: bool, game_over_card: Option<bool>) -> Mode {
     use crate::menu::MenuState;
     match app_state {
         AppState::Menu | AppState::GameOver => match menu.state {
@@ -66,6 +69,10 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, 
             Some(g) if g.state == GameState::Paused && counting_down => Mode::None,
             Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
             Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
+            Some(g) if g.state == GameState::GameOver => match game_over_card {
+                Some(high_score) => Mode::GameOver { legacy: g.is_legacy_mode(), high_score },
+                None => Mode::None,
+            },
             _ => Mode::None,
         },
     }
@@ -133,6 +140,18 @@ pub async fn run() {
                 new_game.toggle_ghost_block_mode();
             }
         }
+        // `--tetris T` shows JONES'IN! T seconds in (`--b2b`: a back-to-back one), with `--freeze`
+        // holding the game still, for screenshots of the celebration.
+        if let Some(t) = std::env::args().skip_while(|a| a != "--tetris").nth(1).and_then(|t| t.parse::<f64>().ok()) {
+            use crate::scoring::{LineClearType, ScoringAction};
+            let tetris = ScoringAction { line_clear_type: LineClearType::Tetris, perfect_clear: None, level: 1, combo: 0, back_to_back: true };
+            let b2b = std::env::args().any(|a| a == "--b2b");
+            for _ in 0..if b2b { 2 } else { 1 } {
+                new_game.scoring_system.process_line_clear(tetris.clone());
+            }
+            new_game.tetris_celebration_active = true;
+            new_game.tetris_celebration_timer = t;
+        }
         new_game.legacy_mode = menu_system.settings.legacy_mode;
         game = Some(new_game);
         app_state = AppState::Playing;
@@ -174,6 +193,28 @@ pub async fn run() {
     // the last special clear.
     let mut pause_flow = duo::PauseFlow::default();
     let mut callout = duo::Callout::default();
+    // The board's effects (hard drop, line clear, JONES'IN!), drawn by touch_view.
+    let mut effects = fx::Fx::default();
+    // `--freeze`: the game doesn't move (for screenshots of a moment).
+    let freeze = std::env::args().any(|a| a == "--freeze");
+    // `--fx combo|perfect|tspin|over` sets that effect up part way through (`over` ends the game),
+    // for screenshots.
+    #[cfg(not(target_os = "ios"))]
+    if let (Some(which), Some(g)) = (std::env::args().skip_while(|a| a != "--fx").nth(1), game.as_mut()) {
+        if which == "over" {
+            g.state = GameState::GameOver;
+            g.score = 48210;
+        }
+        if which == "throw" {
+            g.ghost_throw_active = true;
+            g.ghost_throw_timer = 0.72;
+            g.ghost_throw_target = (2, (crate::game::config::BOARD_HEIGHT + crate::game::config::BUFFER_HEIGHT) as i32 - 1);
+        }
+        if freeze {
+            effects.freeze(get_time());
+        }
+        effects.demo(&which, g, effects.now());
+    }
     // `--countdown` (with `--play --paused`) and `--callout`, for checking how they look.
     if std::env::args().any(|a| a == "--countdown") {
         pause_flow.resume_pressed();
@@ -210,7 +251,7 @@ pub async fn run() {
             pause_flow.idle(screen_size);
         }
         if touch_mode {
-            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system, pause_flow.countdown().is_some());
+            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system, pause_flow.countdown().is_some(), effects.game_over_card(effects.now()));
             touch::begin_frame(&layout, mode);
             touch::set_keyboard(mode == Mode::NameEntry);
             // Not clipped: the backdrop covers the whole screen, and menu effects may spill over.
@@ -275,6 +316,7 @@ pub async fn run() {
                 // New and loaded games start in the look chosen in Settings.
                 if matches!(action, MenuAction::NewGame | MenuAction::LoadGame) {
                     callout = duo::Callout::default();
+                    effects.reset();
                     if let Some(g) = game.as_mut() {
                         g.legacy_mode = menu_system.settings.legacy_mode;
                     }
@@ -300,7 +342,7 @@ pub async fn run() {
                     let was_clearing_lines = felt.clearing;
                     let prev_state = felt.state;
                     
-                    if came_back && current_game.state == GameState::Playing {
+                    if came_back && !freeze && current_game.state == GameState::Playing {
                         log::info!("Back after {frame_time:.1}s away: pausing");
                         current_game.toggle_pause();
                     }
@@ -321,12 +363,27 @@ pub async fn run() {
                     }
 
                     // Update game logic
-                    current_game.update(delta_time as f64);
+                    current_game.update(if freeze { 0.0 } else { delta_time as f64 });
                     
-                    // Check for game over and high score
-                    if current_game.state == GameState::GameOver && prev_state != GameState::GameOver {
+                    // Game over. Touch: the stack greys, then the game-over card comes up with PLAY
+                    // AGAIN and MENU (R and Escape, handled with the other keys), or SAVE SCORE
+                    // (Enter) for a high score, which goes on to name entry. Desktop goes straight
+                    // on. Any frame showing a finished game counts, not only the one it ended on, so
+                    // nothing can leave it stuck.
+                    let finished = current_game.state == GameState::GameOver;
+                    if finished && prev_state != GameState::GameOver {
                         crate::game_center::submit_score(current_game.score);
-                        // Game just ended - check for high score
+                        // The run is over: its auto-save mustn't come back through Load Game (and
+                        // be scored a second time).
+                        if let Err(e) = std::fs::remove_file(&save_path) {
+                            log::debug!("No save to remove at game over: {e}");
+                        }
+                    }
+                    let save_score = touch_mode && key_pressed(KeyCode::Enter);
+                    if finished && touch_mode {
+                        effects.game_over(effects.now(), menu_system.leaderboard.qualifies_for_leaderboard(current_game.score));
+                    }
+                    if finished && (!touch_mode || save_score) {
                         if menu_system.check_high_score(
                             current_game.score,
                             current_game.level(),
@@ -341,12 +398,14 @@ pub async fn run() {
                     }
                     
                     // Detect and play audio for game events
-                    detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+                    detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state, felt.celebration);
                     felt.haptics_since(current_game);
+                    effects.observe(fx::Before { hard_drops: felt.hard_drops, clearing: felt.clearing, clears: felt.clears, throwing: felt.throwing, level: prev_level }, current_game, effects.now());
                     let clears = current_game.scoring_system.clears();
                     if clears < felt.clears {
                         // A new game (R): the last one's callout goes.
                         callout = duo::Callout::default();
+                        effects.reset();
                     } else if clears != felt.clears {
                         if let Some(clear) = current_game.scoring_system.last_clear() {
                             callout.show(&clear);
@@ -389,7 +448,7 @@ pub async fn run() {
                             }
                             (t * 2.0).min(1.0).min((12.0 - t).max(0.0))
                         };
-                        let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout };
+                        let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout, fx: &effects };
                         touch_view::render(current_game, &background_texture, &layout, &overlay);
                     } else {
                         render_game(current_game, &background_texture, fps);
@@ -2691,6 +2750,9 @@ fn draw_enhanced_board_with_data(board: &Board) {
 /// What the game was doing before a frame's input and update, to tell what happened since.
 struct FeltState {
     clearing: bool,
+    hard_drops: u32,
+    /// How long the JONES'IN! (Tetris) celebration had been showing, if it was.
+    celebration: Option<f64>,
     clears: u32,
     throwing: bool,
     state: GameState,
@@ -2700,6 +2762,8 @@ impl FeltState {
     fn of(game: &Game) -> Self {
         Self {
             clearing: game.is_clearing_lines(),
+            hard_drops: game.hard_drops,
+            celebration: celebration_time(game),
             clears: game.scoring_system.clears(),
             throwing: game.is_ghost_throw_active(),
             state: game.state,
@@ -2734,6 +2798,11 @@ impl FeltState {
     }
 }
 
+/// How long the JONES'IN! celebration has been showing, or `None` when it isn't.
+fn celebration_time(game: &Game) -> Option<f64> {
+    game.is_tetris_celebration_active().then_some(game.tetris_celebration_timer)
+}
+
 /// Detect and play audio for game events
 fn detect_and_play_audio_events(
     game: &Game,
@@ -2743,6 +2812,7 @@ fn detect_and_play_audio_events(
     _prev_lines_cleared: u32,
     was_clearing_lines: bool,
     prev_state: GameState,
+    prev_celebration: Option<f64>,
 ) {
     // Don't play any gameplay sounds during game over state to prevent spam
     if game.state == GameState::GameOver {
@@ -2766,6 +2836,15 @@ fn detect_and_play_audio_events(
     // Level up sound
     if game.level() > prev_level {
         audio_system.play_sound(SoundType::LevelComplete);
+    }
+
+    // JONES'IN! (a Tetris): the fanfare as the text pops in, then the voice clip if there is one.
+    let cues = crate::audio::cues::jonesin_cues(prev_celebration, celebration_time(game));
+    if cues.fanfare {
+        audio_system.play_sound(SoundType::Jonesin);
+    }
+    if cues.voice {
+        audio_system.play_sound(SoundType::JonesinVoice);
     }
 }
 

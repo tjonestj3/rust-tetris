@@ -28,9 +28,9 @@ pub const INPUT_REPEAT_DELAY: f64 = 0.167; // Initial delay before key repeat
 pub const INPUT_REPEAT_RATE: f64 = 0.033; // Time between repeated inputs
 pub const SOFT_DROP_INTERVAL: f64 = 0.05; // Time between soft drop steps when held
 pub const HORIZONTAL_MOVE_INTERVAL: f64 = 0.16; // Time between horizontal moves when held (reduced sensitivity)
-pub const LINE_CLEAR_ANIMATION_TIME: f64 = 0.5; // Duration of line clearing animation
+pub const LINE_CLEAR_ANIMATION_TIME: f64 = 0.32; // Line clear: play waits this long (the cells pop; the stack's fall runs after, over live play)
 pub const TETRIS_CELEBRATION_TIME: f64 = 2.0; // Duration of TETRIS celebration message
-pub const GHOST_THROW_ANIMATION_TIME: f64 = 1.0; // Duration of ghost block throwing animation
+pub const GHOST_THROW_ANIMATION_TIME: f64 = 0.9; // Ghost block throw: the aim, then the comet in
 
 /// Scoring constants
 pub const SCORE_SINGLE_LINE: u32 = 100;

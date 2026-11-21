@@ -37,6 +37,9 @@ pub enum Mode {
     Paused { legacy: bool },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
+    /// The game-over card is up: PLAY AGAIN (R) and MENU (Escape), or SAVE SCORE (Enter) when
+    /// the score makes the leaderboard.
+    GameOver { legacy: bool, high_score: bool },
 }
 
 /// What the player's fingers did this frame, for the game to apply.
@@ -82,6 +85,10 @@ struct Gesture {
 }
 
 /// A button drawn on screen (the pause icon, Resume / Menu).
+/// A finger's movement in a frame counts as up or down, not sideways, when it goes this many
+/// times as far vertically as across (within about 27° of straight up or down).
+const VERTICAL_RATIO: f32 = 2.0;
+
 /// How far outside a button a tap still counts, in points.
 const BUTTON_SLACK: f32 = 10.0;
 
@@ -183,7 +190,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
                 s.canvas_tap = fresh.first().and_then(|f| layout.screen_to_canvas(f.pos));
             }
             Mode::Game { .. } => track_gesture(&mut s, layout, &fingers, &fresh, now),
-            Mode::Paused { .. } | Mode::None => s.gesture = None,
+            Mode::Paused { .. } | Mode::GameOver { .. } | Mode::None => s.gesture = None,
         }
     });
 }
@@ -259,7 +266,16 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
     g.max_fingers = g.max_fingers.max(down_now.max(fingers.len().min(2)));
 
     let finger = fingers.iter().find(|f| f.id == g.id).copied();
-    let pos = finger.map(|f| f.pos).unwrap_or_else(|| g.samples.back().map(|s| s.1).unwrap_or(g.start));
+    let last = g.samples.back().map(|s| s.1).unwrap_or(g.start);
+    let pos = finger.map(|f| f.pos).unwrap_or(last);
+
+    // A thumb swiping down (or up) never goes quite straight: sideways drift while the finger is
+    // mostly going up or down is carried along with the anchor, so it isn't a move. Deliberate
+    // sideways drags, diagonal ones too, still move.
+    let d = pos - last;
+    if d.y.abs() > VERTICAL_RATIO * d.x.abs() {
+        g.anchor.x += d.x;
+    }
 
     g.samples.push_back((now, pos));
     while g.samples.len() > 2 && now - g.samples[0].0 > 0.1 {
@@ -373,12 +389,36 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
+        Mode::GameOver { high_score, .. } => {
+            let card = game_over_card(layout);
+            let (pad, h, gap) = (16.0 * u, 48.0 * u, 12.0 * u);
+            let y = card.bottom() - pad - h;
+            let w = card.w - 2.0 * pad;
+            if high_score {
+                vec![button(Rect::new(card.x + pad, y, w, h), KeyCode::Enter, "SAVE SCORE")]
+            } else {
+                let half = (w - gap) / 2.0;
+                vec![
+                    button(Rect::new(card.x + pad, y, half, h), KeyCode::R, "PLAY AGAIN"),
+                    button(Rect::new(card.x + pad + half + gap, y, half, h), KeyCode::Escape, "MENU"),
+                ]
+            }
+        }
         _ => Vec::new(),
     };
-    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } = mode {
+    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } | Mode::GameOver { legacy: true, .. } = mode {
         buttons.iter_mut().for_each(|b| b.legacy = true);
     }
     buttons
+}
+
+/// Where the game-over card sits (app::fx draws it; its buttons are here): the middle of the
+/// safe area, a size that fits the folded Duo.
+pub fn game_over_card(layout: &Layout) -> Rect {
+    let u = layout.unit;
+    let safe = layout.safe;
+    let (w, h) = ((300.0 * u).min(safe.w * 0.86), (250.0 * u).min(safe.h * 0.8));
+    Rect::new(safe.center().x - w / 2.0, safe.center().y - h / 2.0, w, h)
 }
 
 fn button(rect: Rect, key: KeyCode, label: &'static str) -> Button {
@@ -535,6 +575,56 @@ mod tests {
         ]));
         assert!(g.hard_drop);
         assert!(!g.hold && !g.rotate_cw && g.moves == 0);
+    }
+
+    #[test]
+    fn flick_down_that_drifts_sideways_doesnt_move() {
+        // A thumb arcs: 160 px down with 40 px sideways (more than a 30 px step) on the way.
+        let g = total(&run(&[
+            (0.0, vec![(1, 100.0, 100.0, true, false)]),
+            (0.03, vec![(1, 108.0, 140.0, false, false)]),
+            (0.06, vec![(1, 124.0, 200.0, false, false)]),
+            (0.08, vec![(1, 140.0, 260.0, false, true)]),
+        ]));
+        assert!(g.hard_drop);
+        assert_eq!(g.moves, 0, "the drift isn't a move");
+    }
+
+    #[test]
+    fn soft_drop_that_drifts_sideways_doesnt_move() {
+        let mut frames = vec![(0.0, vec![(1, 100.0, 100.0, true, false)])];
+        for i in 1..=20 {
+            // 5 px down and 2 px right a frame: 100 down, 40 across.
+            frames.push((i as f64 * 0.05, vec![(1, 100.0 + i as f32 * 2.0, 100.0 + i as f32 * 5.0, false, false)]));
+        }
+        frames.push((1.1, vec![(1, 140.0, 200.0, false, true)]));
+        let g = total(&run(&frames));
+        assert!(g.soft_drop);
+        assert_eq!(g.moves, 0);
+    }
+
+    #[test]
+    fn drag_down_then_sideways_still_moves() {
+        let mut frames = vec![(0.0, vec![(1, 100.0, 100.0, true, false)])];
+        for i in 1..=8 {
+            frames.push((i as f64 * 0.05, vec![(1, 100.0, 100.0 + i as f32 * 10.0, false, false)]));
+        }
+        for i in 1..=7 {
+            frames.push((0.4 + i as f64 * 0.05, vec![(1, 100.0 + i as f32 * 10.0, 180.0, false, false)]));
+        }
+        frames.push((0.8, vec![(1, 170.0, 180.0, false, true)]));
+        assert_eq!(total(&run(&frames)).moves, 2, "70 px across = 2 steps");
+    }
+
+    #[test]
+    fn diagonal_drag_still_moves() {
+        let mut frames = vec![(0.0, vec![(1, 100.0, 100.0, true, false)])];
+        for i in 1..=10 {
+            let d = i as f32 * 10.0;
+            frames.push((i as f64 * 0.05, vec![(1, 100.0 + d, 100.0 + d, false, false)]));
+        }
+        frames.push((0.6, vec![(1, 200.0, 200.0, false, true)]));
+        assert_eq!(total(&run(&frames)).moves, 3);
     }
 
     #[test]
