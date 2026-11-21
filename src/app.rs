@@ -341,7 +341,7 @@ pub async fn run() {
                     }
                     
                     // Detect and play audio for game events
-                    detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
+                    detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state, felt.celebration);
                     felt.haptics_since(current_game);
                     let clears = current_game.scoring_system.clears();
                     if clears < felt.clears {
@@ -2691,6 +2691,8 @@ fn draw_enhanced_board_with_data(board: &Board) {
 /// What the game was doing before a frame's input and update, to tell what happened since.
 struct FeltState {
     clearing: bool,
+    /// How long the JONES'IN! (Tetris) celebration had been showing, if it was.
+    celebration: Option<f64>,
     clears: u32,
     throwing: bool,
     state: GameState,
@@ -2700,6 +2702,7 @@ impl FeltState {
     fn of(game: &Game) -> Self {
         Self {
             clearing: game.is_clearing_lines(),
+            celebration: celebration_time(game),
             clears: game.scoring_system.clears(),
             throwing: game.is_ghost_throw_active(),
             state: game.state,
@@ -2734,6 +2737,11 @@ impl FeltState {
     }
 }
 
+/// How long the JONES'IN! celebration has been showing, or `None` when it isn't.
+fn celebration_time(game: &Game) -> Option<f64> {
+    game.is_tetris_celebration_active().then_some(game.tetris_celebration_timer)
+}
+
 /// Detect and play audio for game events
 fn detect_and_play_audio_events(
     game: &Game,
@@ -2743,6 +2751,7 @@ fn detect_and_play_audio_events(
     _prev_lines_cleared: u32,
     was_clearing_lines: bool,
     prev_state: GameState,
+    prev_celebration: Option<f64>,
 ) {
     // Don't play any gameplay sounds during game over state to prevent spam
     if game.state == GameState::GameOver {
@@ -2766,6 +2775,15 @@ fn detect_and_play_audio_events(
     // Level up sound
     if game.level() > prev_level {
         audio_system.play_sound(SoundType::LevelComplete);
+    }
+
+    // JONES'IN! (a Tetris): the fanfare as the text pops in, then the voice clip if there is one.
+    let cues = crate::audio::cues::jonesin_cues(prev_celebration, celebration_time(game));
+    if cues.fanfare {
+        audio_system.play_sound(SoundType::Jonesin);
+    }
+    if cues.voice {
+        audio_system.play_sound(SoundType::JonesinVoice);
     }
 }
 

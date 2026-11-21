@@ -91,6 +91,13 @@
 | `Ctrl+S` | Manual save |
 | `Esc` | Quit game |
 
+### **JONES'IN! sounds**
+A Tetris plays `assets/sounds/jonesin.wav` as the JONES'IN! text pops in: a short fanfare made by
+`python3 tools/jonesin_fanfare.py` (edit and re-run it to change it). A voice clip saying
+"Jonesin'!" goes in `assets/sounds/jonesin-voice.wav` and plays 0.3 s in, over the fanfare's chord
+(`src/audio/cues.rs`). Until that file exists the game just skips it. Best as a WAV, 44.1 kHz,
+mono or stereo, under about 1.5 s, trimmed tight at the start.
+
 ## 🚀 **INSTALLATION & SETUP**
 
 ### **Prerequisites**

@@ -26,7 +26,14 @@ pub enum SoundType {
     PowerAction,
     /// Background music
     BackgroundMusic,
+    /// The JONES'IN! (Tetris) fanfare
+    Jonesin,
+    /// Someone saying "Jonesin'!" over the fanfare: optional, played only if the file is there
+    JonesinVoice,
 }
+
+/// Recorded later; until then, not having it is normal and isn't worth a warning.
+const OPTIONAL_SOUNDS: [SoundType; 1] = [SoundType::JonesinVoice];
 
 /// Audio system managing all game sounds
 #[derive(Debug)]
@@ -74,6 +81,8 @@ impl AudioSystem {
             (SoundType::GameOver, "assets/sounds/game-over.wav"),
             (SoundType::PowerAction, "assets/sounds/place-ghost-block.wav"),
             (SoundType::BackgroundMusic, "assets/sounds/tetris-background-music.wav"),
+            (SoundType::Jonesin, "assets/sounds/jonesin.wav"),
+            (SoundType::JonesinVoice, "assets/sounds/jonesin-voice.wav"),
         ];
         
         for (sound_type, file_path) in sound_files {
@@ -81,6 +90,9 @@ impl AudioSystem {
                 Ok(sound) => {
                     self.sounds.insert(sound_type, sound);
                     log::debug!("Loaded sound: {:?} from {}", sound_type, file_path);
+                }
+                Err(e) if OPTIONAL_SOUNDS.contains(&sound_type) => {
+                    log::debug!("No {:?} at {} ({}): skipping it", sound_type, file_path, e);
                 }
                 Err(e) => {
                     log::warn!("Failed to load sound {:?} from {}: {} - continuing without this sound", sound_type, file_path, e);
@@ -112,7 +124,7 @@ impl AudioSystem {
             
             play_sound(sound, params);
             log::info!("Playing sound: {:?} at volume {:.2}", sound_type, volume);
-        } else {
+        } else if !OPTIONAL_SOUNDS.contains(&sound_type) {
             log::warn!("Sound not loaded: {:?}", sound_type);
         }
     }
@@ -139,7 +151,7 @@ impl AudioSystem {
             play_sound(sound, params);
             log::info!("Playing sound: {:?} at volume {:.2} ({}x multiplier)", 
                        sound_type, final_volume, volume_multiplier);
-        } else {
+        } else if !OPTIONAL_SOUNDS.contains(&sound_type) {
             log::warn!("Sound not loaded: {:?}", sound_type);
         }
     }
