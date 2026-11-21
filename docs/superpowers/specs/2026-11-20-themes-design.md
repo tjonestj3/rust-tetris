@@ -30,6 +30,10 @@ look rather than a recolour, plus a minimal mode with a bigger, centred board. P
   with every colour coming from one `FxPalette` (`src/app/fx.rs`); a theme supplies its own
   palette, so no animation code changes when a theme is added. Terminal, for example, draws
   JONES'IN! in green block letters with a scanline flash instead of confetti.
+- **Animations are modular too.** Each animation is its own file under `src/app/fx/` with one
+  entry point that draws from the palette. A theme can also choose a different style per
+  animation (`FxStyles`: e.g. Arcade picks the Marquee sign for JONES'IN!, Chess a wooden
+  "check!" banner for T-spins), falling back to the default style for anything it doesn't name.
 
 ## Non-goals
 
