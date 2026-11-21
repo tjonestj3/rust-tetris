@@ -55,7 +55,9 @@ pub fn window_conf() -> Conf {
 }
 
 /// How touches are read on the current screen.
-fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, counting_down: bool) -> Mode {
+/// `game_over_card`: once the game-over card is up, whether the score makes the leaderboard
+/// (super::fx).
+fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, counting_down: bool, game_over_card: Option<bool>) -> Mode {
     use crate::menu::MenuState;
     match app_state {
         AppState::Menu | AppState::GameOver => match menu.state {
@@ -67,6 +69,10 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, 
             Some(g) if g.state == GameState::Paused && counting_down => Mode::None,
             Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
             Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
+            Some(g) if g.state == GameState::GameOver => match game_over_card {
+                Some(high_score) => Mode::GameOver { legacy: g.is_legacy_mode(), high_score },
+                None => Mode::None,
+            },
             _ => Mode::None,
         },
     }
@@ -191,6 +197,19 @@ pub async fn run() {
     let mut effects = fx::Fx::default();
     // `--freeze`: the game doesn't move (for screenshots of a moment).
     let freeze = std::env::args().any(|a| a == "--freeze");
+    // `--fx combo|perfect|tspin|over` sets that effect up part way through (`over` ends the game),
+    // for screenshots.
+    #[cfg(not(target_os = "ios"))]
+    if let (Some(which), Some(g)) = (std::env::args().skip_while(|a| a != "--fx").nth(1), game.as_mut()) {
+        if which == "over" {
+            g.state = GameState::GameOver;
+            g.score = 48210;
+        }
+        if freeze {
+            effects.freeze(get_time());
+        }
+        effects.demo(&which, g, effects.now());
+    }
     // `--countdown` (with `--play --paused`) and `--callout`, for checking how they look.
     if std::env::args().any(|a| a == "--countdown") {
         pause_flow.resume_pressed();
@@ -227,7 +246,7 @@ pub async fn run() {
             pause_flow.idle(screen_size);
         }
         if touch_mode {
-            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system, pause_flow.countdown().is_some());
+            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system, pause_flow.countdown().is_some(), effects.game_over_card(effects.now()));
             touch::begin_frame(&layout, mode);
             touch::set_keyboard(mode == Mode::NameEntry);
             // Not clipped: the backdrop covers the whole screen, and menu effects may spill over.
@@ -341,12 +360,20 @@ pub async fn run() {
                     // Update game logic
                     current_game.update(if freeze { 0.0 } else { delta_time as f64 });
                     
-                    // Check for game over and high score. Any frame showing a finished game moves on
-                    // (not only the frame it ended), so nothing can leave the GAME OVER card stuck
-                    // with no way out on a touch screen.
-                    if current_game.state == GameState::GameOver {
+                    // Game over. Touch: the stack greys, then the game-over card comes up with PLAY
+                    // AGAIN and MENU (R and Escape, handled with the other keys), or SAVE SCORE
+                    // (Enter) for a high score, which goes on to name entry. Desktop goes straight
+                    // on. Any frame showing a finished game counts, not only the one it ended on, so
+                    // nothing can leave it stuck.
+                    let finished = current_game.state == GameState::GameOver;
+                    if finished && prev_state != GameState::GameOver {
                         crate::game_center::submit_score(current_game.score);
-                        // Game just ended - check for high score
+                    }
+                    let save_score = touch_mode && key_pressed(KeyCode::Enter);
+                    if finished && touch_mode {
+                        effects.game_over(effects.now(), menu_system.leaderboard.qualifies_for_leaderboard(current_game.score));
+                    }
+                    if finished && (!touch_mode || save_score) {
                         if menu_system.check_high_score(
                             current_game.score,
                             current_game.level(),
@@ -363,7 +390,7 @@ pub async fn run() {
                     // Detect and play audio for game events
                     detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state, felt.celebration);
                     felt.haptics_since(current_game);
-                    effects.observe(felt.hard_drops, felt.clearing, current_game, get_time());
+                    effects.observe(fx::Before { hard_drops: felt.hard_drops, clearing: felt.clearing, clears: felt.clears }, current_game, effects.now());
                     let clears = current_game.scoring_system.clears();
                     if clears < felt.clears {
                         // A new game (R): the last one's callout goes.

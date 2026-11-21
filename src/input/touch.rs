@@ -37,6 +37,9 @@ pub enum Mode {
     Paused { legacy: bool },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
+    /// The game-over card is up: PLAY AGAIN (R) and MENU (Escape), or SAVE SCORE (Enter) when
+    /// the score makes the leaderboard.
+    GameOver { legacy: bool, high_score: bool },
 }
 
 /// What the player's fingers did this frame, for the game to apply.
@@ -187,7 +190,7 @@ pub fn begin_frame(layout: &Layout, mode: Mode) {
                 s.canvas_tap = fresh.first().and_then(|f| layout.screen_to_canvas(f.pos));
             }
             Mode::Game { .. } => track_gesture(&mut s, layout, &fingers, &fresh, now),
-            Mode::Paused { .. } | Mode::None => s.gesture = None,
+            Mode::Paused { .. } | Mode::GameOver { .. } | Mode::None => s.gesture = None,
         }
     });
 }
@@ -386,12 +389,36 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
+        Mode::GameOver { high_score, .. } => {
+            let card = game_over_card(layout);
+            let (pad, h, gap) = (16.0 * u, 48.0 * u, 12.0 * u);
+            let y = card.bottom() - pad - h;
+            let w = card.w - 2.0 * pad;
+            if high_score {
+                vec![button(Rect::new(card.x + pad, y, w, h), KeyCode::Enter, "SAVE SCORE")]
+            } else {
+                let half = (w - gap) / 2.0;
+                vec![
+                    button(Rect::new(card.x + pad, y, half, h), KeyCode::R, "PLAY AGAIN"),
+                    button(Rect::new(card.x + pad + half + gap, y, half, h), KeyCode::Escape, "MENU"),
+                ]
+            }
+        }
         _ => Vec::new(),
     };
-    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } = mode {
+    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } | Mode::GameOver { legacy: true, .. } = mode {
         buttons.iter_mut().for_each(|b| b.legacy = true);
     }
     buttons
+}
+
+/// Where the game-over card sits (app::fx draws it; its buttons are here): the middle of the
+/// safe area, a size that fits the folded Duo.
+pub fn game_over_card(layout: &Layout) -> Rect {
+    let u = layout.unit;
+    let safe = layout.safe;
+    let (w, h) = ((300.0 * u).min(safe.w * 0.86), (250.0 * u).min(safe.h * 0.8));
+    Rect::new(safe.center().x - w / 2.0, safe.center().y - h / 2.0, w, h)
 }
 
 fn button(rect: Rect, key: KeyCode, label: &'static str) -> Button {

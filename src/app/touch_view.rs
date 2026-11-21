@@ -163,7 +163,10 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
             Some(left) => draw_countdown(p, u, left, look),
             None => draw_pause(layout, look),
         },
-        GameState::GameOver => draw_game_over(game, layout, look),
+        GameState::GameOver => {
+            screen_camera();
+            overlay.fx.draw_game_over(game, layout, overlay.fx.now());
+        }
         _ => {}
     }
     screen_camera();
@@ -172,7 +175,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
 /// The board: a dark glass well with a glowing edge, the settled blocks, where the piece will
 /// land, and the piece.
 fn draw_board(game: &Game, p: &PlayLayout, u: f32, fx: &Fx) {
-    let now = get_time();
+    let now = fx.now();
     let cell = p.board.w / BOARD_WIDTH as f32;
     // The board kicks with a hard drop and with JONES'IN! (super::fx).
     let kick = fx.board_offset(game, now, cell);
@@ -198,7 +201,7 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32, fx: &Fx) {
         for x in 0..BOARD_WIDTH {
             if let Some(color) = game.board.get_cell(x as i32, (y + BUFFER_HEIGHT) as i32).and_then(|c| c.color()) {
                 if let Some(look) = fx.cell(game, x, y + BUFFER_HEIGHT, now, cell) {
-                    fx::draw_block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color, look);
+                    fx::draw_block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color, look, &fx.palette);
                 }
             }
         }
@@ -550,27 +553,6 @@ fn draw_pause(layout: &Layout, look: Look) {
         style::panel(card, VIOLET, u);
     }
     gesture_rows(&GESTURES, s.center().x, block_top, row_h, size, 1.0, look);
-}
-
-fn draw_game_over(game: &Game, layout: &Layout, look: Look) {
-    screen_camera();
-    let (s, u) = (layout.safe, layout.unit);
-    let shade = look.pick(Color::new(0.05, 0.02, 0.16, 0.78), Color::new(0.0, 0.0, 0.0, 0.86));
-    draw_rectangle(0.0, 0.0, layout.screen.w, layout.screen.h, shade);
-    let size = fit_size("GAME OVER", 52.0 * u, s.w * 0.85);
-    let card_w = (s.w * 0.86).min(size * 7.0);
-    let card = Rect::new(s.center().x - card_w / 2.0, s.center().y - size * 1.6, card_w, size * 3.4);
-    match look {
-        Look::Modern => style::panel(card, PINK, u),
-        Look::Legacy => {
-            style::term_frame(card, "", fit_size("<==>", 15.0 * u, card_w), TERM_GREEN, TERM_GREEN);
-        }
-    }
-    title_text("GAME OVER", s.center().x, card.y + size * 1.35, size, u, look);
-    centered("SCORE", s.center().x, card.y + size * 2.15, fit_size("SCORE", 16.0 * u, card_w), look.label(GOLD));
-    let score = game.score.to_string();
-    let big = fit_size(&score, 30.0 * u, card_w * 0.8);
-    centered(&score, s.center().x, card.y + size * 2.15 + big * 1.1, big, look.value());
 }
 
 /// A title in the piece colours, one letter each, with a soft shadow; in the legacy look, green
