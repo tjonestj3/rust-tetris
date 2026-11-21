@@ -142,6 +142,105 @@ mod tests {
         }
     }
 
+    /// Under SRS every piece can turn either way from any rotation state
+    /// while pressed flat against either side of an open board.
+    #[test]
+    fn test_every_piece_rotates_off_both_walls_in_every_state() {
+        let srs = SRSRotationSystem::new();
+        let board = Board::new();
+        let mut stuck = Vec::new();
+
+        for piece_type in TetrominoType::all() {
+            for rotation in 0..4u8 {
+                for wall in ["left", "right"] {
+                    let mut piece = Tetromino::new(piece_type);
+                    piece.rotation = rotation;
+                    piece.update_blocks();
+                    piece.position = (0, 10);
+                    let xs: Vec<i32> = piece.absolute_blocks().iter().map(|b| b.0).collect();
+                    piece.position.0 = if wall == "left" {
+                        -xs.iter().min().unwrap()
+                    } else {
+                        9 - xs.iter().max().unwrap()
+                    };
+
+                    for (direction, result) in [
+                        ("clockwise", srs.rotate_clockwise(&piece, &board)),
+                        ("counterclockwise", srs.rotate_counterclockwise(&piece, &board)),
+                    ] {
+                        if result == RotationResult::Failed {
+                            stuck.push(format!("{:?} rotation {} at the {} wall can't turn {}",
+                                piece_type, rotation, wall, direction));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(stuck.is_empty(), "pieces stuck against a wall:\n{}", stuck.join("\n"));
+    }
+
+    /// Rotate `piece` on a board that is solid except for the piece's own
+    /// cells and the cells of `piece_type` at `expected` in the target state,
+    /// so the only place the rotation can land is `expected`.
+    fn rotate_into_pocket(piece: &Tetromino, clockwise: bool, expected: (i32, i32)) -> RotationResult {
+        let srs = SRSRotationSystem::new();
+        let mut target = piece.clone();
+        target.rotation = if clockwise { (piece.rotation + 1) % 4 } else { (piece.rotation + 3) % 4 };
+        target.update_blocks();
+        target.position = expected;
+
+        let open: Vec<(i32, i32)> = piece.absolute_blocks().into_iter()
+            .chain(target.absolute_blocks())
+            .collect();
+        let mut board = Board::new();
+        for x in 0..10 {
+            for y in 0..24 {
+                if !open.contains(&(x, y)) {
+                    board.set_cell(x, y, Cell::Filled(GRAY));
+                }
+            }
+        }
+        if clockwise { srs.rotate_clockwise(piece, &board) } else { srs.rotate_counterclockwise(piece, &board) }
+    }
+
+    fn assert_lands_at(result: RotationResult, expected: (i32, i32)) {
+        match result {
+            RotationResult::Success { new_piece } | RotationResult::SuccessWithKick { new_piece, .. } => {
+                assert_eq!(new_piece.position, expected, "rotation landed in the wrong place");
+            }
+            RotationResult::Failed => panic!("rotation should kick to {:?} but failed", expected),
+        }
+    }
+
+    // The SRS tables are written with +y pointing up; on this board +y
+    // points down, so an SRS kick of (dx, dy) moves the piece by (dx, -dy).
+
+    #[test]
+    fn test_kick_up_moves_piece_up() {
+        // T 0→R, third test is SRS (-1, +1): one left, one UP
+        let mut piece = Tetromino::new(TetrominoType::T);
+        piece.position = (5, 10);
+        assert_lands_at(rotate_into_pocket(&piece, true, (4, 9)), (4, 9));
+    }
+
+    #[test]
+    fn test_kick_down_moves_piece_down() {
+        // T R→0, third test is SRS (+1, -1): one right, one DOWN
+        let mut piece = Tetromino::new(TetrominoType::T);
+        piece.rotation = 1;
+        piece.update_blocks();
+        piece.position = (5, 10);
+        assert_lands_at(rotate_into_pocket(&piece, false, (6, 11)), (6, 11));
+    }
+
+    #[test]
+    fn test_i_piece_kick_up_two_moves_piece_up_two() {
+        // I 0→R, fifth test is SRS (+1, +2): one right, two UP
+        let mut piece = Tetromino::new(TetrominoType::I);
+        piece.position = (5, 10);
+        assert_lands_at(rotate_into_pocket(&piece, true, (6, 8)), (6, 8));
+    }
+
     #[test]
     fn test_counterclockwise_rotation() {
         let srs = SRSRotationSystem::new();

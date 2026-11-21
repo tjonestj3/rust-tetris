@@ -9,7 +9,9 @@ use serde::{Serialize, Deserialize};
 /// Rotation state (0° = 0, 90° CW = 1, 180° = 2, 270° CW = 3)
 pub type RotationState = u8;
 
-/// Wall kick offset data - (x_offset, y_offset)
+/// Wall kick offset data - (x_offset, y_offset) in SRS notation, as in the
+/// published tables: +x is right and +y is UP. Board rows count downward,
+/// so applying a kick moves the piece by (x_offset, -y_offset).
 pub type KickOffset = (i32, i32);
 
 /// Wall kick data for a specific rotation transition

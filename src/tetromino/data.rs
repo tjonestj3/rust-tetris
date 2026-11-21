@@ -52,19 +52,30 @@ fn get_t_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
 }
 
 /// S-piece - S-shaped piece
+///
+/// The four SRS states, turning about the cell at (0, 1). As with the
+/// I-piece, the states are not mirror pairs: R sits right of centre, L left
+/// of it, and 2 one row below 0. With only two shapes the SRS kicks can't
+/// move a vertical S off the left wall.
 fn get_s_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
     match rotation {
-        0 | 2 => vec![(0, 0), (1, 0), (-1, 1), (0, 1)], // Horizontal S
-        1 | 3 => vec![(0, -1), (0, 0), (1, 0), (1, 1)], // Vertical S
+        0 => vec![(0, 0), (1, 0), (-1, 1), (0, 1)],   // Horizontal (spawn)
+        1 => vec![(0, 0), (0, 1), (1, 1), (1, 2)],    // Vertical, right of centre
+        2 => vec![(0, 1), (1, 1), (-1, 2), (0, 2)],   // Horizontal, one row lower
+        3 => vec![(-1, 0), (-1, 1), (0, 1), (0, 2)],  // Vertical, left of centre
         _ => vec![],
     }
 }
 
 /// Z-piece - Z-shaped piece
+///
+/// The four SRS states, turning about the cell at (0, 1); see the S-piece.
 fn get_z_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
     match rotation {
-        0 | 2 => vec![(-1, 0), (0, 0), (0, 1), (1, 1)], // Horizontal Z
-        1 | 3 => vec![(0, 0), (0, 1), (-1, 1), (-1, 2)], // Vertical Z
+        0 => vec![(-1, 0), (0, 0), (0, 1), (1, 1)],   // Horizontal (spawn)
+        1 => vec![(1, 0), (1, 1), (0, 1), (0, 2)],    // Vertical, right of centre
+        2 => vec![(-1, 1), (0, 1), (0, 2), (1, 2)],   // Horizontal, one row lower
+        3 => vec![(0, 0), (0, 1), (-1, 1), (-1, 2)],  // Vertical, left of centre
         _ => vec![],
     }
 }
@@ -72,10 +83,10 @@ fn get_z_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
 /// J-piece - J-shaped piece
 fn get_j_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
     match rotation {
-        0 => vec![(-1, -1), (-1, 0), (0, 0), (1, 0)], // J pointing right
-        1 => vec![(0, -1), (0, 0), (0, 1), (1, 1)],  // J pointing down
-        2 => vec![(-1, 0), (0, 0), (1, 0), (1, 1)],  // J pointing left
-        3 => vec![(-1, -1), (0, -1), (0, 0), (0, 1)], // J pointing up
+        0 => vec![(-1, -1), (-1, 0), (0, 0), (1, 0)], // Hook top-left (spawn)
+        1 => vec![(0, -1), (1, -1), (0, 0), (0, 1)],  // Hook top-right
+        2 => vec![(-1, 0), (0, 0), (1, 0), (1, 1)],   // Hook bottom-right
+        3 => vec![(0, -1), (0, 0), (-1, 1), (0, 1)],  // Hook bottom-left
         _ => vec![],
     }
 }
@@ -83,10 +94,10 @@ fn get_j_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
 /// L-piece - L-shaped piece
 fn get_l_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
     match rotation {
-        0 => vec![(1, -1), (-1, 0), (0, 0), (1, 0)], // L pointing right
-        1 => vec![(0, -1), (0, 0), (0, 1), (1, -1)], // L pointing down
-        2 => vec![(-1, 0), (0, 0), (1, 0), (-1, 1)], // L pointing left
-        3 => vec![(0, -1), (0, 0), (0, 1), (-1, 1)], // L pointing up
+        0 => vec![(1, -1), (-1, 0), (0, 0), (1, 0)],  // Hook top-right (spawn)
+        1 => vec![(0, -1), (0, 0), (0, 1), (1, 1)],   // Hook bottom-right
+        2 => vec![(-1, 0), (0, 0), (1, 0), (-1, 1)],  // Hook bottom-left
+        3 => vec![(-1, -1), (0, -1), (0, 0), (0, 1)], // Hook top-left
         _ => vec![],
     }
 }
@@ -142,6 +153,45 @@ mod tests {
             let same_row = blocks.iter().all(|b| b.1 == blocks[0].1);
             let same_col = blocks.iter().all(|b| b.0 == blocks[0].0);
             assert!(same_row != same_col, "I rotation {} should be a straight line", rotation);
+        }
+    }
+
+    /// Turn a shape 90° clockwise about the origin (y points down).
+    fn turned_cw(blocks: &[(i32, i32)]) -> Vec<(i32, i32)> {
+        blocks.iter().map(|&(x, y)| (-y, x)).collect()
+    }
+
+    fn sorted(mut blocks: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+        blocks.sort();
+        blocks
+    }
+
+    /// SRS: each rotation state is the previous one turned 90° clockwise
+    /// about one fixed centre. A turn about a centre c equals a turn about
+    /// the origin plus a fixed shift, so every 0→1→2→3→0 step must need
+    /// the same shift. A mirrored shape (J drawn as L) can't be matched by
+    /// any shift; a two-shape piece (S/Z with 0 == 2) needs different
+    /// shifts on different steps, and so can't use the SRS kick table.
+    #[test]
+    fn test_rotation_states_turn_about_one_centre() {
+        for piece_type in TetrominoType::all() {
+            if piece_type == TetrominoType::O {
+                continue; // The O-piece doesn't rotate
+            }
+            let mut shifts = Vec::new();
+            for rotation in 0..4u8 {
+                let turned = sorted(turned_cw(&get_tetromino_blocks(piece_type, rotation)));
+                let next = sorted(get_tetromino_blocks(piece_type, (rotation + 1) % 4));
+                let shift = (next[0].0 - turned[0].0, next[0].1 - turned[0].1);
+                let moved: Vec<_> = turned.iter().map(|&(x, y)| (x + shift.0, y + shift.1)).collect();
+                assert_eq!(moved, next,
+                    "{:?} rotation {} turned clockwise is not the shape of rotation {} (mirrored?)",
+                    piece_type, rotation, (rotation + 1) % 4);
+                shifts.push(shift);
+            }
+            assert!(shifts.iter().all(|&s| s == shifts[0]),
+                "{:?} rotation states don't turn about one centre (shift per step: {:?})",
+                piece_type, shifts);
         }
     }
 
