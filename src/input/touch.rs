@@ -81,6 +81,9 @@ struct Gesture {
     travel: f32,
     moved: bool,
     max_fingers: usize,
+    /// Fingers that were already down when this gesture began (one on a button, or one whose
+    /// end never arrived): they don't make it a two-finger gesture.
+    before: Vec<u64>,
     /// Recent positions, for the flick speed.
     samples: VecDeque<(f64, Vec2)>,
 }
@@ -254,14 +257,16 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
                 travel: 0.0,
                 moved: false,
                 max_fingers: 1,
+                before: fingers.iter().filter(|o| o.id != f.id && !o.new).map(|o| o.id).collect(),
                 samples,
             });
         }
     }
 
     let Some(g) = s.gesture.as_mut() else { return };
-    let down_now = fingers.iter().filter(|f| !f.ended).count();
-    g.max_fingers = g.max_fingers.max(down_now.max(fingers.len().min(2)));
+    let mine: Vec<&Finger> = fingers.iter().filter(|f| !g.before.contains(&f.id)).collect();
+    let down_now = mine.iter().filter(|f| !f.ended).count();
+    g.max_fingers = g.max_fingers.max(down_now.max(mine.len().min(2)));
 
     let finger = fingers.iter().find(|f| f.id == g.id).copied();
     let last = g.samples.back().map(|s| s.1).unwrap_or(g.start);
@@ -623,6 +628,36 @@ mod tests {
         }
         frames.push((0.6, vec![(1, 200.0, 200.0, false, true)]));
         assert_eq!(total(&run(&frames)).moves, 3);
+    }
+
+    #[test]
+    fn a_finger_left_down_before_doesnt_make_swipes_two_finger() {
+        // A finger whose end never arrived (iOS cancelled it) sits still where the HOLD box was
+        // tapped (a button, so it never started a gesture); then a flick down and a drag
+        // sideways still work, and a tap still rotates clockwise.
+        let stale = (9, 60.0, 80.0, false, false);
+        let mut frames = vec![(0.0, vec![stale])];
+        frames.push((0.5, vec![stale, (1, 100.0, 100.0, true, false)]));
+        frames.push((0.53, vec![stale, (1, 100.0, 140.0, false, false)]));
+        frames.push((0.56, vec![stale, (1, 101.0, 200.0, false, false)]));
+        frames.push((0.58, vec![stale, (1, 101.0, 240.0, false, true)]));
+        let g = total(&run(&frames));
+        assert!(g.hard_drop, "flick down with a stale finger elsewhere: {g:?}");
+
+        let mut frames = vec![(0.0, vec![stale])];
+        frames.push((0.5, vec![stale, (1, 100.0, 300.0, true, false)]));
+        for i in 1..=10 {
+            frames.push((0.5 + i as f64 * 0.05, vec![stale, (1, 100.0 + i as f32 * 10.0, 300.0, false, false)]));
+        }
+        frames.push((1.1, vec![stale, (1, 200.0, 300.0, false, true)]));
+        assert_eq!(total(&run(&frames)).moves, 3);
+
+        let g = total(&run(&[
+            (0.0, vec![stale]),
+            (0.5, vec![stale, (1, 200.0, 300.0, true, false)]),
+            (0.6, vec![stale, (1, 201.0, 301.0, false, true)]),
+        ]));
+        assert!(g.rotate_cw && !g.rotate_ccw, "{g:?}");
     }
 
     #[test]
