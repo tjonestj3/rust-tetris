@@ -1,6 +1,6 @@
-//! Terminal: green text on black, like the first versions of the game on a text terminal. The
-//! board is the legacy text board; panels are ruled text frames (app::touch_view draws those
-//! where `terminal` is set).
+//! Terminal: green text on black, like the first versions of the game on a text terminal. Blocks
+//! are green text blocks; panels are ruled text frames (app::touch_view draws those where
+//! `terminal` is set).
 
 use macroquad::prelude::*;
 

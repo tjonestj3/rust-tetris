@@ -44,7 +44,7 @@ pub struct Theme {
     pub id: ThemeId,
     /// As shown in Settings.
     pub name: &'static str,
-    /// Terminal-style text frames and the legacy text board (the Terminal theme).
+    /// Terminal-style ruled text frames for the panels (the Terminal theme).
     pub terminal: bool,
     /// The font everything on the play screen is drawn in.
     pub face: Face,
