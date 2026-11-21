@@ -20,6 +20,14 @@ pub enum GameState {
     GameOver,
 }
 
+/// A hard drop, for drawing its streak: the piece's cells before it fell, and how far it fell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HardDropMark {
+    pub start: Vec<(i32, i32)>,
+    pub distance: i32,
+    pub piece_type: TetrominoType,
+}
+
 /// Main game struct
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
@@ -102,6 +110,16 @@ pub struct Game {
     /// still there to look at; scored when its lines clear.
     #[serde(default)]
     pub lock_was_t_spin: bool,
+
+    /// Hard drops so far this run, and the last one: where the piece started, how far it fell
+    /// and its type (for the drop's streak; not saved).
+    #[serde(skip)]
+    pub hard_drops: u32,
+    #[serde(skip)]
+    pub last_hard_drop: Option<HardDropMark>,
+    /// The cells the last piece locked into (board coordinates; not saved).
+    #[serde(skip)]
+    pub last_lock_cells: Vec<(i32, i32)>,
     
     /// Super Rotation System for handling piece rotation with wall kicks
     pub rotation_system: SRSRotationSystem,
@@ -154,6 +172,9 @@ impl Game {
             legacy_mode: false, // Start in modern mode by default
             last_action_was_rotation: false,
             lock_was_t_spin: false,
+            hard_drops: 0,
+            last_hard_drop: None,
+            last_lock_cells: Vec::new(),
             
             rotation_system: SRSRotationSystem::new(),
             scoring_system: TetrisScoring::new(),
@@ -304,6 +325,7 @@ impl Game {
             self.piece_lifetime_timer = 0.0;
             
             // Place the piece on the board
+            self.last_lock_cells = piece.absolute_blocks();
             for (x, y) in piece.absolute_blocks() {
                 if x >= 0 && y >= 0 {
                     self.board.set_cell(x, y, Cell::Filled(piece.color()));
@@ -510,7 +532,9 @@ impl Game {
     
     /// Hard drop the current piece
     pub fn hard_drop(&mut self) {
-        if self.current_piece.is_some() {
+        if let Some(piece) = &self.current_piece {
+            let start = piece.absolute_blocks();
+            let piece_type = piece.piece_type;
             let mut drop_distance = 0;
             
             // Drop as far as possible
@@ -527,6 +551,9 @@ impl Game {
             self.scoring_system.add_drop_points((drop_distance as u32) * SCORE_HARD_DROP);
             self.score = self.scoring_system.total_score();
             
+            self.hard_drops += 1;
+            self.last_hard_drop = Some(HardDropMark { start, distance: drop_distance, piece_type });
+
             // Immediately lock the piece after hard drop - no lock delay
             self.lock_current_piece();
         }

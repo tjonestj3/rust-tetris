@@ -19,6 +19,7 @@ use crate::graphics::text::{draw_text, measure_text};
 use crate::graphics::view::{map_camera, screen_camera, HudStyle, Layout, PlayLayout, CANVAS_BOARD};
 use crate::tetromino::{Tetromino, TetrominoType};
 use super::duo::Callout;
+use super::fx::{self, Fx};
 
 const LABEL: Color = SOFT_INK;
 const VALUE: Color = INK;
@@ -79,6 +80,8 @@ pub(super) struct Overlay<'a> {
     pub countdown: Option<f32>,
     /// The last special clear's callout (shown in the open Duo's feed).
     pub callout: &'a Callout,
+    /// The effects: hard drop, line clear, JONES'IN!.
+    pub fx: &'a Fx,
 }
 
 /// Draw the game screen.
@@ -107,11 +110,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         }
     } else {
         style::backdrop(get_time() as f32);
-        draw_board(game, p, layout.unit);
-        if game.is_clearing_lines() {
-            map_camera(CANVAS_BOARD, p.board);
-            draw_line_clear_animation(game);
-        }
+        draw_board(game, p, layout.unit, overlay.fx);
         map_camera(CANVAS_BOARD, p.board);
     }
     if game.is_ghost_cursor_visible() {
@@ -149,9 +148,14 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
 
     // The TETRIS celebration, over everything, at the size of the whole canvas fitted to the screen.
     if game.is_tetris_celebration_active() {
-        map_camera(layout.canvas_src, layout.game);
-        draw_tetris_celebration(game);
-        screen_camera();
+        if legacy {
+            map_camera(layout.canvas_src, layout.game);
+            draw_tetris_celebration(game);
+            screen_camera();
+        } else {
+            screen_camera();
+            fx::jonesin::draw(game, layout, &overlay.fx.palette);
+        }
     }
 
     match game.state {
@@ -167,9 +171,12 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
 
 /// The board: a dark glass well with a glowing edge, the settled blocks, where the piece will
 /// land, and the piece.
-fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
-    let b = p.board;
-    let cell = b.w / BOARD_WIDTH as f32;
+fn draw_board(game: &Game, p: &PlayLayout, u: f32, fx: &Fx) {
+    let now = get_time();
+    let cell = p.board.w / BOARD_WIDTH as f32;
+    // The board kicks with a hard drop and with JONES'IN! (super::fx).
+    let kick = fx.board_offset(game, now, cell);
+    let b = Rect::new(p.board.x + kick.x, p.board.y + kick.y, p.board.w, p.board.h);
     let pad = (3.0 * u).round();
     let well = Rect::new(b.x - pad, b.y - pad, b.w + 2.0 * pad, b.h + 2.0 * pad);
     let radius = 8.0 * u;
@@ -186,10 +193,13 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
         draw_rectangle(b.x, (b.y + y as f32 * cell).round(), b.w, 1.0, Color::new(0.8, 0.85, 1.0, 0.06));
     }
 
+    fx.draw_under(b, cell, now);
     for y in 0..VISIBLE_HEIGHT {
         for x in 0..BOARD_WIDTH {
             if let Some(color) = game.board.get_cell(x as i32, (y + BUFFER_HEIGHT) as i32).and_then(|c| c.color()) {
-                style::block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color);
+                if let Some(look) = fx.cell(game, x, y + BUFFER_HEIGHT, now, cell) {
+                    fx::draw_block(b.x + x as f32 * cell, b.y + y as f32 * cell, cell, color, look);
+                }
             }
         }
     }
@@ -211,6 +221,7 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32) {
     }
 
     style::round_outline(well, radius, (2.0 * u).max(1.0), alpha(CYAN, 0.85));
+    fx.draw_over(b, cell, now);
 }
 
 /// A panel's frame and label; returns the area left for its content.
