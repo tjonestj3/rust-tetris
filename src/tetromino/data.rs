@@ -19,10 +19,18 @@ pub fn get_tetromino_blocks(piece_type: TetrominoType, rotation: u8) -> Vec<(i32
 }
 
 /// I-piece (line) - 4 blocks in a line
+///
+/// These are the four SRS states, which the SRS I kick table assumes. The
+/// I-piece turns about the centre of its 4x4 box, not about a cell, so its
+/// states are not mirror pairs: R sits one column right of L, and 2 one row
+/// below 0. Collapsing them to two shapes (0 == 2, 1 == 3) leaves a vertical
+/// I in state R against the right wall unable to rotate at all.
 fn get_i_piece_blocks(rotation: u8) -> Vec<(i32, i32)> {
     match rotation {
-        0 | 2 => vec![(-1, 0), (0, 0), (1, 0), (2, 0)], // Horizontal
-        1 | 3 => vec![(0, -1), (0, 0), (0, 1), (0, 2)], // Vertical
+        0 => vec![(-1, 0), (0, 0), (1, 0), (2, 0)],   // Horizontal (spawn)
+        1 => vec![(1, -1), (1, 0), (1, 1), (1, 2)],   // Vertical, right of centre
+        2 => vec![(-1, 1), (0, 1), (1, 1), (2, 1)],   // Horizontal, one row lower
+        3 => vec![(0, -1), (0, 0), (0, 1), (0, 2)],   // Vertical, left of centre
         _ => vec![],
     }
 }
@@ -116,12 +124,25 @@ mod tests {
         
         // Should be different
         assert_ne!(horizontal, vertical);
-        
-        // Rotation 2 should match rotation 0
-        assert_eq!(horizontal, get_tetromino_blocks(TetrominoType::I, 2));
-        
-        // Rotation 3 should match rotation 1
-        assert_eq!(vertical, get_tetromino_blocks(TetrominoType::I, 3));
+
+        let shifted = |blocks: &[(i32, i32)], dx: i32, dy: i32| -> Vec<(i32, i32)> {
+            blocks.iter().map(|(x, y)| (x + dx, y + dy)).collect()
+        };
+
+        // SRS: rotation 2 is rotation 0 one row lower
+        assert_eq!(shifted(&horizontal, 0, 1), get_tetromino_blocks(TetrominoType::I, 2));
+
+        // SRS: rotation 1 (R) is rotation 3 (L) one column to the right
+        let vertical_l = get_tetromino_blocks(TetrominoType::I, 3);
+        assert_eq!(shifted(&vertical_l, 1, 0), vertical);
+
+        // Every state is a straight line of four
+        for rotation in 0..4 {
+            let blocks = get_tetromino_blocks(TetrominoType::I, rotation);
+            let same_row = blocks.iter().all(|b| b.1 == blocks[0].1);
+            let same_col = blocks.iter().all(|b| b.0 == blocks[0].0);
+            assert!(same_row != same_col, "I rotation {} should be a straight line", rotation);
+        }
     }
 
     #[test]

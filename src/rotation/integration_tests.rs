@@ -89,9 +89,14 @@ mod tests {
         
         // Position I-piece against right wall
         let mut piece = Tetromino::new(TetrominoType::I);
-        piece.position = (8, 18); // Near right wall
-        piece.rotation = 1; // Vertical
-        
+        piece.position = (7, 18);
+        piece.rotation = 1; // Vertical (R state: bar one column right of centre)
+        piece.update_blocks();
+        assert!(
+            piece.absolute_blocks().iter().all(|&(x, _)| x == 8),
+            "setup: the bar should sit in column 8, against the wall at column 9"
+        );
+
         // Try rotating to horizontal - should kick left
         let result = srs.rotate_clockwise(&piece, &board);
         
@@ -107,6 +112,32 @@ mod tests {
             },
             RotationResult::Failed => {
                 panic!("Rotation should succeed with wall kick");
+            }
+        }
+    }
+
+    #[test]
+    fn test_vertical_i_rotates_off_right_edge() {
+        let srs = SRSRotationSystem::new();
+        let board = Board::new();
+
+        // A vertical I (R state) in the rightmost column of an open board
+        let mut piece = Tetromino::new(TetrominoType::I);
+        piece.position = (8, 10);
+        piece.rotation = 1;
+        piece.update_blocks();
+        assert!(piece.absolute_blocks().iter().all(|&(x, _)| x == 9));
+
+        for (name, result) in [
+            ("clockwise", srs.rotate_clockwise(&piece, &board)),
+            ("counterclockwise", srs.rotate_counterclockwise(&piece, &board)),
+        ] {
+            match result {
+                RotationResult::Success { new_piece }
+                | RotationResult::SuccessWithKick { new_piece, .. } => {
+                    assert!(new_piece.absolute_blocks().iter().all(|&(x, _)| (0..10).contains(&x)));
+                }
+                RotationResult::Failed => panic!("vertical I at the right edge should rotate {}", name),
             }
         }
     }

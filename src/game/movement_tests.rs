@@ -43,10 +43,15 @@ mod movement_tests {
             game.board.set_cell(x as i32, board_bottom as i32, Cell::Filled(macroquad::prelude::RED));
         }
         
-        // Position I-piece above the incomplete line
+        // Position a vertical I-piece above the gap in the last column
         if let Some(ref mut piece) = game.current_piece {
-            piece.position = (((BOARD_WIDTH - 1) as i32), (board_bottom - 5) as i32);
+            piece.rotation = 1;
+            piece.update_blocks();
+            let bar_x = piece.blocks[0].0;
+            piece.position = ((BOARD_WIDTH - 1) as i32 - bar_x, (board_bottom - 5) as i32);
+            assert!(piece.absolute_blocks().iter().all(|&(x, _)| x == (BOARD_WIDTH - 1) as i32));
         }
+        assert!(game.is_piece_valid(game.current_piece.as_ref().unwrap()), "setup: piece must start in a valid position");
         
         let original_y = game.current_piece.as_ref().unwrap().position.1;
         
@@ -267,38 +272,33 @@ mod movement_tests {
         
         // Drop until grounded
         while game.drop_current_piece() {}
-        
+        let landed_cells = game.current_piece.as_ref().unwrap().absolute_blocks();
+        let is_locked_in = |game: &Game| {
+            landed_cells.iter().all(|&(x, y)| game.board.get_cell(x, y).map_or(false, |c| c.is_filled()))
+        };
+        assert!(!is_locked_in(&game), "setup: piece should not be locked yet");
+
         // Repeatedly try to reset lock delay beyond the limit
         for _ in 0..(MAX_LOCK_RESETS + 5) {
-            if game.current_piece.is_some() {
-                game.reset_lock_delay();
-                game.update(0.01);
-            }
+            game.reset_lock_delay();
+            game.update(0.01);
         }
-        
+
         // After exceeding max resets, piece should be forced into locking state
-        if game.current_piece.is_some() {
-            assert!(game.piece_is_locking || game.lock_resets >= MAX_LOCK_RESETS, 
-                   "Piece should be in locking state or have hit reset limit");
-            
-            // Force lock delay to expire
-            game.lock_delay_timer = LOCK_DELAY + 0.1;
-            game.update(0.1);
+        assert_eq!(game.lock_resets, MAX_LOCK_RESETS, "Resets should stop at the limit");
+        assert!(game.piece_is_locking, "Piece should be in locking state after hitting the reset limit");
+
+        // Further resets are denied, so the lock delay runs out on its own.
+        // (Locking spawns the next piece, so check the board, not current_piece.)
+        let mut elapsed = 0.0;
+        while !is_locked_in(&game) && elapsed < LOCK_DELAY * 2.0 {
+            game.reset_lock_delay();
+            game.update(0.05);
+            elapsed += 0.05;
         }
-        
-        // Piece should eventually lock
-        let max_attempts = 100;
-        for _ in 0..max_attempts {
-            if game.current_piece.is_none() {
-                break;
-            }
-            game.update(0.1);
-        }
-        
+
         // Should not have infinite floating
-        assert!(game.current_piece.is_none() || 
-                game.piece_lifetime_timer >= MAX_PIECE_LIFETIME, 
-                "Piece should not float indefinitely");
+        assert!(is_locked_in(&game), "Piece should lock within the lock delay once resets run out");
     }
 
     #[test]
