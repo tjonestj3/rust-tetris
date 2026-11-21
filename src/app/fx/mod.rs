@@ -10,7 +10,9 @@ mod clear;
 mod combo;
 mod drop;
 mod gameover;
+mod ghost;
 pub(super) mod jonesin;
+mod level;
 mod perfect;
 mod tspin;
 
@@ -107,6 +109,9 @@ pub(super) struct Before {
     pub hard_drops: u32,
     pub clearing: bool,
     pub clears: u32,
+    /// A ghost block was in flight.
+    pub throwing: bool,
+    pub level: u32,
 }
 
 #[derive(Default)]
@@ -118,6 +123,8 @@ pub(super) struct Fx {
     combo: combo::ComboFx,
     perfect: Option<perfect::PerfectFx>,
     game_over: Option<gameover::GameOverFx>,
+    impact: Option<ghost::ImpactFx>,
+    level: Option<level::LevelFx>,
     /// A clock that stands still (desktop `--freeze`, for screenshots).
     frozen_at: Option<f64>,
 }
@@ -152,6 +159,18 @@ impl Fx {
         if self.perfect.as_ref().is_some_and(|f| f.done(now)) {
             self.perfect = None;
         }
+        if before.throwing && !game.is_ghost_throw_active() && game.state != GameState::GameOver {
+            self.impact = Some(ghost::ImpactFx { start: now, cell: game.ghost_throw_target });
+        }
+        if self.impact.as_ref().is_some_and(|f| f.done(now)) {
+            self.impact = None;
+        }
+        if game.level() > before.level && before.level > 0 {
+            self.level = Some(level::LevelFx { start: now });
+        }
+        if self.level.as_ref().is_some_and(|f| f.done(now)) {
+            self.level = None;
+        }
         if game.hard_drops != hard_drops {
             if let Some(mark) = &game.last_hard_drop {
                 self.drop = Some(drop::DropFx::new(mark, now));
@@ -181,7 +200,7 @@ impl Fx {
         }
     }
 
-    /// Desktop screenshots (`--fx combo|perfect|tspin|over`): set an effect up part way through.
+    /// Desktop screenshots (`--fx combo|perfect|tspin|over|level|impact|throw`): set an effect up part way through.
     #[cfg(not(target_os = "ios"))]
     pub fn demo(&mut self, which: &str, game: &Game, now: f64) {
         match which {
@@ -195,6 +214,11 @@ impl Fx {
                 self.tspin = Some(tspin::TspinFx::new(&g, now - 0.3));
             }
             "over" => self.game_over = Some(gameover::GameOverFx::new(now - 2.5, game.score > 0)),
+            "level" => self.level = Some(level::LevelFx { start: now - 0.12 }),
+            "impact" => {
+                let y = (crate::game::config::BOARD_HEIGHT + BUFFER_HEIGHT) as i32 - 1;
+                self.impact = Some(ghost::ImpactFx { start: now - 0.1, cell: (2, y) });
+            }
             _ => {}
         }
     }
@@ -218,7 +242,20 @@ impl Fx {
         if let Some(drop) = &self.drop {
             d.y += drop::dip((now - drop.start) as f32) * cell * 0.14;
         }
+        if let Some(impact) = &self.impact {
+            d += impact.shake(now) * cell * 0.18;
+        }
         d + jonesin::shake(game) * cell * 0.22
+    }
+
+    /// 1 just after the level goes up, falling to 0 (the stats panel's level number pops).
+    pub fn level_pop(&self, now: f64) -> f32 {
+        self.level.as_ref().map_or(0.0, |l| l.pop(now))
+    }
+
+    /// The ring around the level number as it pops.
+    pub fn level_ring(&self, c: Vec2, size: f32, now: f64) {
+        level::ring(c, size, self.level_pop(now), &self.palette);
     }
 
     /// How to draw the settled cell at board column `x`, row `y` (board rows, counting the hidden
@@ -227,7 +264,10 @@ impl Fx {
         if let Some(g) = &self.game_over {
             return Some(CellFx { grey: g.grey(y.saturating_sub(BUFFER_HEIGHT), now), ..Default::default() });
         }
-        let Some(clear) = &self.clear else { return Some(CellFx::default()) };
+        let Some(clear) = &self.clear else {
+            let scale = self.impact.as_ref().map_or(1.0, |i| i.jiggle(x as i32, y as i32, now));
+            return Some(CellFx { scale, ..Default::default() });
+        };
         if game.is_clearing_lines() {
             if game.clearing_lines.contains(&y) {
                 let t = game.get_clear_animation_progress() as f32 * crate::game::config::LINE_CLEAR_ANIMATION_TIME as f32;
@@ -235,7 +275,8 @@ impl Fx {
             }
             return Some(CellFx::default());
         }
-        Some(CellFx { dy: clear.fall_dy(y, now) * cell, ..Default::default() })
+        let scale = self.impact.as_ref().map_or(1.0, |i| i.jiggle(x as i32, y as i32, now));
+        Some(CellFx { dy: clear.fall_dy(y, now) * cell, scale, ..Default::default() })
     }
 
     /// Under the blocks: the hard drop's streak.
@@ -245,9 +286,16 @@ impl Fx {
         }
     }
 
-    /// Over the blocks: the clear's shards, the hard drop's dust, the T-spin, the combo chip and
-    /// a perfect clear.
-    pub fn draw_over(&self, board: Rect, cell: f32, now: f64) {
+    /// Over the blocks: the clear's shards, the hard drop's dust, the T-spin, the combo chip, a
+    /// perfect clear, a ghost block's throw and landing, and a level up.
+    pub fn draw_over(&self, game: &Game, board: Rect, cell: f32, now: f64) {
+        ghost::draw_throw(game, board, cell, now, &self.palette);
+        if let Some(i) = &self.impact {
+            i.draw(board, cell, now, &self.palette);
+        }
+        if let Some(l) = &self.level {
+            l.draw(board, cell, now, &self.palette);
+        }
         if let Some(clear) = &self.clear {
             clear.draw_shards(board, cell, now);
         }

@@ -30,7 +30,7 @@ pub const SOFT_DROP_INTERVAL: f64 = 0.05; // Time between soft drop steps when h
 pub const HORIZONTAL_MOVE_INTERVAL: f64 = 0.16; // Time between horizontal moves when held (reduced sensitivity)
 pub const LINE_CLEAR_ANIMATION_TIME: f64 = 0.32; // Line clear: play waits this long (the cells pop; the stack's fall runs after, over live play)
 pub const TETRIS_CELEBRATION_TIME: f64 = 2.0; // Duration of TETRIS celebration message
-pub const GHOST_THROW_ANIMATION_TIME: f64 = 1.0; // Duration of ghost block throwing animation
+pub const GHOST_THROW_ANIMATION_TIME: f64 = 0.9; // Ghost block throw: the aim, then the comet in
 
 /// Scoring constants
 pub const SCORE_SINGLE_LINE: u32 = 100;

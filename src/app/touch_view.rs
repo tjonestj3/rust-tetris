@@ -116,7 +116,8 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     if game.is_ghost_cursor_visible() {
         draw_ghost_block_cursor(game);
     }
-    if game.is_ghost_throw_active() {
+    // The legacy look keeps its stick figure; the other draws a comet (super::fx).
+    if legacy && game.is_ghost_throw_active() {
         draw_ghost_throw_animation(game);
     }
 
@@ -137,7 +138,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         let color = look.pick(alpha(PINK, 0.7), TERM_DIM);
         draw_text("TAP TO HOLD", hold.center().x - w / 2.0, hold.center().y + size * 0.35, size, color);
     }
-    draw_stats(game, p, u, look);
+    draw_stats(game, p, u, look, overlay.fx);
     if let Some(feed) = p.feed {
         draw_feed(game, feed, p, u, look, overlay.callout);
     }
@@ -224,7 +225,7 @@ fn draw_board(game: &Game, p: &PlayLayout, u: f32, fx: &Fx) {
     }
 
     style::round_outline(well, radius, (2.0 * u).max(1.0), alpha(CYAN, 0.85));
-    fx.draw_over(b, cell, now);
+    fx.draw_over(game, b, cell, now);
 }
 
 /// A panel's frame and label; returns the area left for its content.
@@ -273,7 +274,8 @@ fn fit_size(text: &str, size: f32, max_w: f32) -> f32 {
     if w > max_w && w > 0.0 { size * max_w / w } else { size }
 }
 
-fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
+fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
+    let pop = fx.level_pop(fx.now());
     let ghosts = game.ghost_blocks_available;
     let aiming = game.ghost_block_placement_mode;
     // Ghost blocks blink in the legacy look, faster while aiming.
@@ -322,7 +324,11 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
         y += label + pad * 0.2;
         centered(&score, cx, y + score_size * 0.8, score_size, look.value());
         y += score_size + pad * 0.4;
-        centered(&sub, cx, y + sub_size * 0.8, sub_size, look.pick(GREEN, TERM_GREEN));
+        // The level just went up: the line pops in gold, with a ring.
+        let sub_color = style::mix(look.pick(GREEN, TERM_GREEN), look.pick(GOLD, TERM_GREEN), pop);
+        let sub_big = sub_size * (1.0 + 0.15 * pop);
+        centered(&sub, cx, y + sub_big * 0.8, sub_big, sub_color);
+        fx.level_ring(vec2(cx, y + sub_size * 0.5), sub_size * 2.0, fx.now());
         return;
     }
 
@@ -342,7 +348,11 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
         draw_text("LEVEL", x, y + label * 0.8, label, look.label(GREEN));
         draw_text("LINES", x + half, y + label * 0.8, label, look.label(CYAN));
         y += label + pad * 0.3;
-        draw_text(&level, x, y + value_size * 0.8, value_size, look.value());
+        // The level just went up: the number pops in gold, with a ring.
+        let level_size = value_size * (1.0 + 0.35 * pop);
+        draw_text(&level, x, y + level_size * 0.8, level_size, style::mix(look.value(), look.pick(GOLD, TERM_GREEN), pop));
+        let lw = measure_text(&level, None, value_size as u16, 1.0).width;
+        fx.level_ring(vec2(x + lw / 2.0, y + value_size * 0.45), value_size, fx.now());
         draw_text(&lines, x + half, y + value_size * 0.8, value_size, look.value());
         y += value_size + pad * 0.6;
 

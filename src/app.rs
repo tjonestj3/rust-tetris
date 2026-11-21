@@ -205,6 +205,11 @@ pub async fn run() {
             g.state = GameState::GameOver;
             g.score = 48210;
         }
+        if which == "throw" {
+            g.ghost_throw_active = true;
+            g.ghost_throw_timer = 0.72;
+            g.ghost_throw_target = (2, (crate::game::config::BOARD_HEIGHT + crate::game::config::BUFFER_HEIGHT) as i32 - 1);
+        }
         if freeze {
             effects.freeze(get_time());
         }
@@ -390,7 +395,7 @@ pub async fn run() {
                     // Detect and play audio for game events
                     detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state, felt.celebration);
                     felt.haptics_since(current_game);
-                    effects.observe(fx::Before { hard_drops: felt.hard_drops, clearing: felt.clearing, clears: felt.clears }, current_game, effects.now());
+                    effects.observe(fx::Before { hard_drops: felt.hard_drops, clearing: felt.clearing, clears: felt.clears, throwing: felt.throwing, level: prev_level }, current_game, effects.now());
                     let clears = current_game.scoring_system.clears();
                     if clears < felt.clears {
                         // A new game (R): the last one's callout goes.

@@ -1132,6 +1132,7 @@ impl Game {
         
         // Actually place the block now
         self.board.set_cell(target_x, target_y, Cell::Filled(macroquad::prelude::Color::new(0.8, 0.8, 1.0, 1.0)));
+        self.last_lock_cells = vec![(target_x, target_y)];
         self.ghost_blocks_available -= 1;
         
         // Check if this placement creates any complete lines
