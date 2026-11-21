@@ -99,9 +99,10 @@ TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 
 ### Game Center (one time, by hand) ⏳ to do
 
-4. **Capability**: Identifiers → `com.tjonestj3.rusttetris` → make sure **Game Center** is ticked
-   (it usually is by default) and save. The next build's provisioning profile picks it up
-   (`get_provisioning_profile(force: true)` in the Fastfile).
+4. **Capability**: nothing to do. The portal won't tick Game Center by hand ("add the
+   com.apple.developer.game-center entitlement in Xcode"), so the Fastfile's `beta` lane adds it
+   to the App ID with the App Store Connect key (`ensure_game_center`) before it fetches a fresh
+   provisioning profile (`get_provisioning_profile(force: true)`).
 5. **Leaderboard**: App Store Connect → the app → **Game Center** (under Features or Services)
    → Leaderboards → + → **Classic**: reference name `High Score`, ID **`rusttetris.highscore`**,
    score format Integer, sorted **High to Low**, submission type Best Score; add an English
