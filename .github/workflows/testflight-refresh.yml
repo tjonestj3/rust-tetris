@@ -1,0 +1,64 @@
+# Keeps the TestFlight build from expiring (Apple expires builds 90 days after upload): once a
+# week, a cheap Linux job asks App Store Connect how old the newest build is and, at 75 days or
+# more, starts the Mac build (ios.yml) on main. Nothing runs on a Mac otherwise.
+#
+# Run it by hand with `force` to rebuild now. GitHub turns off scheduled workflows after 60 days
+# without a commit (it emails); one click in Actions turns it back on.
+name: TestFlight refresh
+
+on:
+  schedule:
+    - cron: '0 14 * * 1' # Mondays 14:00 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild whatever the age
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write # to start ios.yml
+
+jobs:
+  check:
+    name: Check the TestFlight build's age
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IOS_BUNDLE_IDENTIFIER: ${{ vars.IOS_BUNDLE_IDENTIFIER || 'com.tjonestj3.rusttetris' }}
+      FASTLANE_SKIP_UPDATE_CHECK: '1'
+      FASTLANE_HIDE_CHANGELOG: '1'
+      REBUILD_AT_DAYS: '75'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Ruby and fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Ask App Store Connect
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: bundle exec fastlane ios testflight_age
+
+      - name: Rebuild if it's getting old
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          age="$(cat build/testflight_age)"
+          echo "Newest TestFlight build: ${age} days old (rebuild at ${REBUILD_AT_DAYS})"
+          if [ "$FORCE" = "true" ] || [ "$age" -ge "$REBUILD_AT_DAYS" ]; then
+            gh workflow run ios.yml --repo "$GITHUB_REPOSITORY" --ref main
+            echo "::notice::Started ios.yml on main (build ${age} days old, force=${FORCE})"
+          else
+            echo "Still fresh; nothing to do."
+          fi

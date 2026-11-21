@@ -3,6 +3,8 @@
 # provisioning profile fastlane fetches with the App Store Connect key. Credentials come from the
 # environment (.github/workflows/ios.yml). Same setup as Spell Duel's.
 
+require "time"
+
 default_platform(:ios)
 
 IOS_DIR = File.expand_path("..", __dir__)
@@ -36,6 +38,33 @@ platform :ios do
     FileUtils.mkdir_p(File.join(REPO_ROOT, "build"))
     File.write(File.join(REPO_ROOT, "build", "next_build_number"), number.to_s)
     UI.success("Next build number #{number}")
+  end
+
+  desc "Write how old the newest TestFlight build is, in whole days, to build/testflight_age"
+  # For .github/workflows/testflight-refresh.yml, which rebuilds before builds expire (90 days).
+  # Runs on Linux: it only asks App Store Connect, it builds nothing. No build at all, or an
+  # expired one, counts as very old.
+  lane :testflight_age do
+    api_key_from_env # Also signs Spaceship's App Store Connect calls in.
+    app = Spaceship::ConnectAPI::App.find(BUNDLE_ID)
+    UI.user_error!("No app #{BUNDLE_ID} in App Store Connect") unless app
+    newest = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 1).first
+
+    age =
+      if newest.nil?
+        UI.important("No TestFlight builds yet")
+        9999
+      elsif newest.expired
+        UI.important("Build #{newest.version} has expired")
+        9999
+      else
+        uploaded = Time.parse(newest.uploaded_date)
+        ((Time.now - uploaded) / 86_400).floor
+      end
+    UI.message("Newest build: #{newest&.version || "none"}, uploaded #{newest&.uploaded_date || "never"}, expires #{newest&.expiration_date || "n/a"}")
+    UI.success("TestFlight build age: #{age} days")
+    FileUtils.mkdir_p(File.join(REPO_ROOT, "build"))
+    File.write(File.join(REPO_ROOT, "build", "testflight_age"), age.to_s)
   end
 
   desc "Build, sign and upload Rust Tetris to TestFlight"

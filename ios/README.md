@@ -153,4 +153,8 @@ it is enough to sort out a layout problem on a device.
 
 ## Maintenance
 
-- TestFlight builds expire 90 days after upload; run the workflow again before then.
+- TestFlight builds expire 90 days after upload. `.github/workflows/testflight-refresh.yml` checks
+  every Monday on Linux (fastlane's `testflight_age` lane asks App Store Connect) and starts
+  `ios.yml` on `main` once the newest build is 75 days old; run it by hand with **force** to
+  rebuild now. GitHub turns scheduled workflows off after 60 days without a commit and emails
+  about it: turn it back on under Actions → TestFlight refresh.
