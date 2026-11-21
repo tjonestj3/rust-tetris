@@ -18,6 +18,7 @@ use crate::graphics::style::{self, alpha, CYAN, GOLD, GREEN, INK, PINK, SOFT_INK
 use crate::graphics::text::{draw_text, measure_text};
 use crate::graphics::view::{map_camera, screen_camera, HudStyle, Layout, PlayLayout, CANVAS_BOARD};
 use crate::tetromino::{Tetromino, TetrominoType};
+use super::duo::Callout;
 
 const LABEL: Color = SOFT_INK;
 const VALUE: Color = INK;
@@ -70,8 +71,19 @@ const GESTURES: [(&str, &str); 8] = [
     ("TAP SCORE", "ghost block"),
 ];
 
-/// Draw the game screen. `hint` (0..1) fades the first-game gesture hint in and out.
-pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint: f32) {
+/// What's drawn over the game besides the game itself.
+pub(super) struct Overlay<'a> {
+    /// 0..1: fades the first-game gesture hint in and out.
+    pub hint: f32,
+    /// Seconds left while counting back into play (super::duo::PauseFlow).
+    pub countdown: Option<f32>,
+    /// The last special clear's callout (shown in the open Duo's feed).
+    pub callout: &'a Callout,
+}
+
+/// Draw the game screen.
+pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overlay: &Overlay) {
+    let hint = overlay.hint;
     let p = &layout.play;
     let legacy = game.is_legacy_mode();
     let look = Look::of(game);
@@ -127,6 +139,9 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
         draw_text("TAP TO HOLD", hold.center().x - w / 2.0, hold.center().y + size * 0.35, size, color);
     }
     draw_stats(game, p, u, look);
+    if let Some(feed) = p.feed {
+        draw_feed(game, feed, p, u, look, overlay.callout);
+    }
 
     if hint > 0.0 && game.state == GameState::Playing {
         draw_hint(p, u, hint, look);
@@ -140,7 +155,10 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, hint:
     }
 
     match game.state {
-        GameState::Paused => draw_pause(layout, look),
+        GameState::Paused => match overlay.countdown {
+            Some(left) => draw_countdown(p, u, left, look),
+            None => draw_pause(layout, look),
+        },
         GameState::GameOver => draw_game_over(game, layout, look),
         _ => {}
     }
@@ -355,6 +373,86 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look) {
         draw_text("TIME", x, time_top + label * 0.8, label, look.label(PINK));
         draw_text(&time, x, time_top + label + pad * 0.3 + time_size * 0.8, time_size, look.value());
     }
+}
+
+/// The open Duo's right column under Next: this game's tallies, and the last special clear's
+/// callout over the top of them while it's up.
+fn draw_feed(game: &Game, r: Rect, p: &PlayLayout, u: f32, look: Look, callout: &Callout) {
+    let stats = game.scoring_system.stats();
+    let pieces = game.scoring_system.pieces();
+    let per_sec = if game.game_time > 1.0 { pieces as f64 / game.game_time } else { 0.0 };
+    let mut rows: Vec<(&str, String, Color)> = vec![
+        ("PIECES", pieces.to_string(), CYAN),
+        ("PER SEC", format!("{per_sec:.2}"), CYAN),
+        ("TETRISES", stats.tetrises.to_string(), GOLD),
+        ("T-SPINS", stats.t_spins.to_string(), VIOLET),
+        ("BEST COMBO", stats.best_combo.to_string(), GREEN),
+        ("B2B BEST", stats.b2b_best.to_string(), PINK),
+    ];
+    if stats.perfect_clears > 0 {
+        rows.push(("PERFECT", stats.perfect_clears.to_string(), GOLD));
+    }
+
+    let inner = panel(r, "THIS GAME", GREEN, p, u, look);
+    let label = label_size(p, u);
+    let row_h = (label * 1.75).min(inner.h / rows.len() as f32).max(label * 1.2);
+    let mut y = inner.y;
+    for (name, value, accent) in &rows {
+        if y + row_h > inner.bottom() + 0.5 {
+            break;
+        }
+        let baseline = y + row_h * 0.5 + label * 0.35;
+        let value_size = label * 1.1;
+        let vw = measure_text(value, None, value_size.max(1.0) as u16, 1.0).width;
+        let name_size = fit_size(name, label * 0.9, inner.w - vw - label);
+        draw_text(name, inner.x, baseline, name_size, look.label(*accent));
+        draw_text(value, inner.right() - vw, baseline, value_size, look.value());
+        y += row_h;
+    }
+
+    let a = callout.alpha();
+    if a <= 0.0 {
+        return;
+    }
+    // The callout: big words in a box over the top of the panel.
+    let max_size = (p.cell * 1.0).max(14.0 * u);
+    let w = r.w - 2.0 * (4.0 * u);
+    let sizes: Vec<f32> = callout.lines.iter().map(|l| fit_size(l, max_size, w * 0.88)).collect();
+    let h = sizes.iter().map(|s| s * 1.35).sum::<f32>() + max_size * 0.6;
+    let boxr = Rect::new(r.x + 4.0 * u, r.y + 4.0 * u, w, h);
+    let radius = 10.0 * u;
+    if look == Look::Legacy {
+        style::term_box(boxr, alpha(TERM_GREEN, a), 0.95 * a, u);
+    } else {
+        style::halo(boxr, radius, 10.0 * u, GOLD, 0.35 * a);
+        style::round_rect(boxr, radius, Color::new(0.20, 0.12, 0.38, 0.95 * a), Color::new(0.08, 0.04, 0.20, 0.95 * a));
+        style::round_outline(boxr, radius, (2.0 * u).max(1.0), alpha(GOLD, 0.9 * a));
+    }
+    const COLORS: [Color; 3] = [GOLD, CYAN, PINK];
+    let mut baseline = boxr.y + max_size * 0.3;
+    for (i, (line, size)) in callout.lines.iter().zip(&sizes).enumerate() {
+        baseline += size * 1.35;
+        let color = look.pick(COLORS[i % COLORS.len()], TERM_GREEN);
+        centered(line, boxr.center().x, baseline - size * 0.3, *size, alpha(color, a));
+    }
+}
+
+/// Counting back into play: the number, big, over the board.
+fn draw_countdown(p: &PlayLayout, u: f32, left: f32, look: Look) {
+    screen_camera();
+    let b = p.board;
+    draw_rectangle(b.x, b.y, b.w, b.h, look.pick(Color::new(0.05, 0.02, 0.16, 0.55), Color::new(0.0, 0.0, 0.0, 0.7)));
+    let n = left.ceil().max(1.0) as u32;
+    let text = n.to_string();
+    // Each number pops in big and shrinks a little over its second.
+    let t = left.fract();
+    let size = p.cell * (4.0 + 1.5 * t);
+    let color = look.pick([GREEN, GOLD, PINK][(n as usize).min(3) - 1], TERM_GREEN);
+    centered(&text, b.center().x + 3.0 * u, b.center().y + size * 0.35 + 3.0 * u, size, Color::new(0.0, 0.0, 0.0, 0.45));
+    centered(&text, b.center().x, b.center().y + size * 0.35, size, color);
+    let ready = "GET READY";
+    let rs = fit_size(ready, label_size(p, u) * 1.2, b.w * 0.8);
+    centered(ready, b.center().x, b.center().y - size * 0.6, rs, look.label(CYAN));
 }
 
 fn centered(text: &str, cx: f32, baseline: f32, size: f32, color: Color) {

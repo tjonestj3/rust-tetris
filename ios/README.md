@@ -26,8 +26,31 @@ All gestures (`src/input/touch.rs`); the only button is pause:
 | Flick up | Hold |
 | **II** (beside the board) | Pause: the gestures, Resume, Menu |
 
-Menus: tap an option. Settings: tap Sound or Volume to change it, anywhere else to go back. A high
-score brings up the keyboard; Return saves it.
+**Game Center** (`src/game_center.rs`, `App/GameCenter.m`): the game signs in at launch (GameKit
+offers its sheet once a launch at most), sends the score at the end of every game to the
+`rusttetris.highscore` leaderboard, and, when signed in, the touch leaderboard has a **GAME
+CENTER** button that opens the global board. The phone's own high-score table is unchanged.
+
+Menus: tap an option. Settings: tap Sound, Volume, Legacy or Haptics to change it, anywhere else
+to go back. A high score brings up the keyboard; Return saves it.
+
+### Haptics
+
+`src/haptics.rs` picks one haptic a frame (the strongest asked for) and `App/Haptics.m` plays it
+with Core Haptics (UIKit impact feedback on phones without it):
+
+| Event | Feel |
+|---|---|
+| Hard drop | a sharp tap |
+| 1-3 lines | a tap per line, rising |
+| Combo | a quick run of rising taps, longer with the combo |
+| Tetris | a heavy double with a rumble between |
+| T-spin | three sharp ticks |
+| Perfect clear | a rumble and three rising taps |
+| Ghost-block fireball | a soft whoosh on the throw, a thud on impact |
+| Game over | a low rumble |
+
+Clears are felt when the lines flash; a perfect clear when they're gone. Off in Settings.
 
 The first game shows a short gesture hint over the board for ten seconds.
 
@@ -42,6 +65,13 @@ Duo can fold and unfold mid-game:
   whichever gives the bigger board. The panels and pause screen are `src/app/touch_view.rs`; the
   board and its effects are the desktop drawing, through a camera that maps the canvas's board onto
   the new board rect.
+- **Open Duo extras**: the right column's space under Next (`PlayLayout::feed`) shows this game's
+  tallies (pieces, pieces per second, Tetrises, T-spins, best combo, best back-to-back run) and,
+  for a moment after a special clear, a callout (`T-SPIN DOUBLE`, `BACK-TO-BACK TETRIS`,
+  `COMBO 3`). The tallies are saved with the game.
+- **Folding mid-game pauses** (so does unfolding or turning the phone: the board jumps). Unfolded
+  or sideways (two columns), it counts 3-2-1 back into play by itself; folded, it waits for
+  Resume, which counts 3-2-1 too (`src/app/duo.rs`).
 - **Menus** fit just the part of the canvas they use (`MenuSystem::content_bounds`) to the screen,
   so they come out large; the backdrop covers the whole screen. The leaderboard shows rank, name and
   score, and name entry sits in the top half, above the keyboard.
@@ -53,7 +83,9 @@ Desktop play is unchanged. Desktop flags for checking the touch screens:
 cargo run -- --touch --window 458x667          # mouse = finger; Duo-folded-ish size
 TETRIS_INSETS=59,0,34,0 cargo run -- --touch   # fake safe-area insets (top,left,bottom,right)
 cargo run -- --touch --play [--paused]         # straight into a game (paused)
+cargo run -- --touch --play --paused --countdown --callout   # the 3-2-1 and a clear callout
 cargo run -- --touch --menu settings           # or leaderboard, name
+cargo run -- --touch --menu leaderboard --game-center   # as if signed in to Game Center
 TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 ```
 
@@ -64,6 +96,19 @@ TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 2. **App record**: App Store Connect → Apps → + → New App with that bundle ID.
 3. **TestFlight group**: the app → TestFlight → Internal Testing → +, add yourself, tick
    **Enable automatic distribution**.
+
+### Game Center (one time, by hand) ⏳ to do
+
+4. **Capability**: Identifiers → `com.tjonestj3.rusttetris` → make sure **Game Center** is ticked
+   (it usually is by default) and save. The next build's provisioning profile picks it up
+   (`get_provisioning_profile(force: true)` in the Fastfile).
+5. **Leaderboard**: App Store Connect → the app → **Game Center** (under Features or Services)
+   → Leaderboards → + → **Classic**: reference name `High Score`, ID **`rusttetris.highscore`**,
+   score format Integer, sorted **High to Low**, submission type Best Score; add an English
+   localization (name `High Score`).
+6. TestFlight builds use Game Center's sandbox: sign in on the phone when the game offers it.
+
+Until then the game plays as before: scores just don't reach Game Center.
 
 ## Repository secrets (`gh secret set -R tjonestj3/rust-tetris …`)
 
@@ -120,7 +165,15 @@ it is enough to sort out a layout problem on a device.
 - **Music**: the build swaps the 48 kHz background music for a 24 kHz copy inside the app
   (`shrink-music.sh`), halving its size and memory. The repo's file is unchanged.
 - **No Quit** on iOS (apps don't quit themselves).
+- **Objective-C** (`App/*.m`, ARC): the bits that are much simpler in Objective-C than through
+  Rust's `objc` crate (Core Haptics patterns, GameKit's blocks and view controllers). Rust declares their C functions for
+  `target_os = "ios"` only; desktop builds get no-ops. Linux CI can't compile them: the first
+  check is the Mac build in `ios.yml`.
 
 ## Maintenance
 
-- TestFlight builds expire 90 days after upload; run the workflow again before then.
+- TestFlight builds expire 90 days after upload. `.github/workflows/testflight-refresh.yml` checks
+  every Monday on Linux (fastlane's `testflight_age` lane asks App Store Connect) and starts
+  `ios.yml` on `main` once the newest build is 75 days old; run it by hand with **force** to
+  rebuild now. GitHub turns scheduled workflows off after 60 days without a commit and emails
+  about it: turn it back on under Actions → TestFlight refresh.

@@ -42,6 +42,13 @@ pub struct GameSettings {
     /// (L, or the pause screen's button) changes it too.
     #[serde(default)]
     pub legacy_mode: bool,
+    /// Haptics on iPhone (on unless turned off).
+    #[serde(default = "on")]
+    pub haptics_enabled: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 impl GameSettings {
@@ -52,6 +59,7 @@ impl GameSettings {
             volume: 0.7,
             gesture_hint_seen: false,
             legacy_mode: false,
+            haptics_enabled: true,
         }
     }
     
@@ -199,7 +207,15 @@ impl MenuSystem {
     
     /// Handle input for the leaderboard screen
     fn handle_leaderboard_input(&mut self) -> MenuAction {
-        if key_pressed(KeyCode::Escape) || key_pressed(KeyCode::Enter) || canvas_tap().is_some() {
+        let tap = canvas_tap();
+        // Touch: the Game Center button opens the global board; a tap anywhere else goes back.
+        if let (Some(t), Some(button)) = (tap, self.touch_global_button()) {
+            if button.contains(t) {
+                crate::game_center::show_leaderboard();
+                return MenuAction::None;
+            }
+        }
+        if key_pressed(KeyCode::Escape) || key_pressed(KeyCode::Enter) || tap.is_some() {
             self.state = MenuState::Main;
             self.selected_option = 2; // Return to leaderboard option
             return MenuAction::None;
@@ -224,8 +240,8 @@ impl MenuSystem {
     
     /// Handle input for the settings screen
     fn handle_settings_input(&mut self) -> MenuAction {
-        // Touch: tap sound, volume or legacy (see draw_touch_settings) to change it; tap anywhere
-        // else to go back.
+        // Touch: tap sound, volume, legacy or haptics (see draw_touch_settings) to change it; tap
+        // anywhere else to go back.
         let mut tap_back = false;
         if let Some(tap) = canvas_tap() {
             if (200.0..288.0).contains(&tap.y) {
@@ -235,9 +251,11 @@ impl MenuSystem {
                 self.selected_option = 1;
                 let next = self.settings.volume + 0.1;
                 self.settings.volume = if next > 1.05 { 0.0 } else { next.min(1.0) };
-            } else if (392.0..480.0).contains(&tap.y) {
+            } else if (392.0..472.0).contains(&tap.y) {
                 self.selected_option = 2;
                 self.settings.legacy_mode = !self.settings.legacy_mode;
+            } else if (472.0..552.0).contains(&tap.y) {
+                self.settings.haptics_enabled = !self.settings.haptics_enabled;
             } else {
                 tap_back = true;
             }
@@ -491,7 +509,7 @@ impl MenuSystem {
         }
     }
 
-    /// Touch settings: sound and volume as glass buttons (the bands the taps use, see
+    /// Touch settings: sound, volume, legacy and haptics as glass buttons (the bands the taps use, see
     /// handle_settings_input), then the way back and the display info.
     fn draw_touch_settings(&self) {
         use crate::graphics::style::{self, alpha, mix, CYAN, GREEN, PINK};
@@ -534,14 +552,17 @@ impl MenuSystem {
         // Legacy: the terminal-style look, for new games.
         switch("LEGACY", 400.0, self.settings.legacy_mode, style::VIOLET, style::VIOLET);
 
+        // Haptics: the iPhone's taps and rumbles on drops, clears and fireballs.
+        switch("HAPTICS", 480.0, self.settings.haptics_enabled, style::GOLD, PINK);
+
         let hint = "Tap to change  -  tap outside to go back";
         let hw = measure_text(hint, None, 18, 1.0).width;
-        draw_text(hint, cx - hw / 2.0, 500.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
+        draw_text(hint, cx - hw / 2.0, 580.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
 
         let info = crate::platform::display_info();
         for (i, line) in info.lines().enumerate() {
             let w = measure_text(line, None, 11, 1.0).width;
-            draw_text(line, cx - w / 2.0, 530.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
+            draw_text(line, cx - w / 2.0, 610.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
         }
     }
 
@@ -667,9 +688,24 @@ impl MenuSystem {
         let instruction = if touch { "Tap anywhere to go back" } else { "Press ESCAPE or ENTER to return to main menu" };
         let inst_width = measure_text(instruction, None, 20, 1.0).width;
         let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
-        let inst_y = if touch { self.touch_leaderboard_bottom() - 25.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
+        let inst_y = if touch { self.touch_table_bottom() - 25.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
         
         self.draw_text_with_outline(instruction, inst_x, inst_y, 20.0, Color::new(0.7, 0.7, 0.7, 0.8));
+
+        if let Some(r) = self.touch_global_button() {
+            use crate::graphics::style::{self, mix, CYAN};
+            style::panel(r, CYAN, 1.0);
+            let label = "GAME CENTER";
+            let size = 24.0;
+            let w = measure_text(label, None, size as u16, 1.0).width;
+            draw_text(label, r.center().x - w / 2.0, r.center().y + size * 0.35, size, mix(CYAN, WHITE, 0.6));
+        }
+    }
+
+    /// The touch leaderboard's Game Center button (signed in only), under the "go back" line.
+    fn touch_global_button(&self) -> Option<Rect> {
+        (crate::platform::is_touch_device() && crate::game_center::available())
+            .then(|| Rect::new(WINDOW_WIDTH as f32 / 2.0 - 140.0, self.touch_table_bottom() + 4.0, 280.0, 56.0))
     }
     
     /// Render the settings screen
@@ -952,9 +988,9 @@ impl MenuSystem {
                 let last = 320.0 + (self.get_main_menu_options().len() as f32 - 1.0) * 55.0;
                 Rect::new(230.0, 70.0, 440.0, last + 45.0 - 70.0)
             }
-            // Touch settings are compact: the "go back" line sits under the legacy switch
-            // (y 500), the display info under that.
-            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 475.0),
+            // Touch settings are compact: the "go back" line sits under the haptics switch
+            // (y 580), the display info under that.
+            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 555.0),
             MenuState::Leaderboard => Rect::new(
                 TOUCH_TABLE_X - 20.0,
                 50.0,
@@ -966,8 +1002,17 @@ impl MenuSystem {
         }
     }
 
-    /// Where the touch leaderboard ends (just under its "go back" line), in canvas units.
+    /// Where the touch leaderboard ends (under its "go back" line and Game Center button), in
+    /// canvas units.
     fn touch_leaderboard_bottom(&self) -> f32 {
+        match self.touch_global_button() {
+            Some(r) => r.bottom() + 12.0,
+            None => self.touch_table_bottom(),
+        }
+    }
+
+    /// Just under the touch leaderboard's "go back" line.
+    fn touch_table_bottom(&self) -> f32 {
         let rows = self.leaderboard.entries.len().min(TOUCH_TABLE_ROWS);
         if rows == 0 { 460.0 } else { 180.0 + 22.0 + (rows as f32 - 1.0) * 45.0 + 85.0 }
     }
@@ -1122,5 +1167,17 @@ pub enum MenuAction {
 impl Default for MenuSystem {
     fn default() -> Self {
         Self::new()
+    }
+}
+#[cfg(test)]
+mod settings_tests {
+    use super::GameSettings;
+
+    #[test]
+    fn old_settings_have_haptics_on() {
+        let old = r#"{"sound_enabled":true,"volume":0.5,"gesture_hint_seen":true,"legacy_mode":false}"#;
+        let s: GameSettings = serde_json::from_str(old).unwrap();
+        assert!(s.haptics_enabled);
+        assert_eq!(s.volume, 0.5);
     }
 }
