@@ -19,7 +19,7 @@ const GHOST: Color = Color::new(0.8, 0.8, 1.0, 1.0);
 
 /// The throw in flight, drawn from the game's own progress (it pauses with the game).
 pub fn draw_throw(game: &Game, board: Rect, cell: f32, now: f64, pal: &FxPalette) {
-    if !game.is_ghost_throw_active() {
+    if !game.is_ghost_throw_active() || game.state == crate::game::GameState::GameOver {
         return;
     }
     let Some((progress, _, _)) = game.get_ghost_throw_info() else { return };

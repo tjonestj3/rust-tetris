@@ -117,7 +117,7 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         draw_ghost_block_cursor(game);
     }
     // The legacy look keeps its stick figure; the other draws a comet (super::fx).
-    if legacy && game.is_ghost_throw_active() {
+    if legacy && game.is_ghost_throw_active() && game.state != GameState::GameOver {
         draw_ghost_throw_animation(game);
     }
 
@@ -148,7 +148,8 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     }
 
     // The TETRIS celebration, over everything, at the size of the whole canvas fitted to the screen.
-    if game.is_tetris_celebration_active() {
+    // Not behind the game-over card: the celebration's clock stops with the game.
+    if game.is_tetris_celebration_active() && game.state != GameState::GameOver {
         if legacy {
             map_camera(layout.canvas_src, layout.game);
             draw_tetris_celebration(game);

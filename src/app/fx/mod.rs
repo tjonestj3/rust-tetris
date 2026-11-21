@@ -159,7 +159,10 @@ impl Fx {
         if self.perfect.as_ref().is_some_and(|f| f.done(now)) {
             self.perfect = None;
         }
-        if before.throwing && !game.is_ghost_throw_active() && game.state != GameState::GameOver {
+        // A throw that landed (not one cut off by a game over and a new game).
+        let (tx, ty) = game.ghost_throw_target;
+        let landed = game.board.get_cell(tx, ty).is_some_and(|c| c.color().is_some());
+        if before.throwing && !game.is_ghost_throw_active() && game.state != GameState::GameOver && landed {
             self.impact = Some(ghost::ImpactFx { start: now, cell: game.ghost_throw_target });
         }
         if self.impact.as_ref().is_some_and(|f| f.done(now)) {
@@ -244,6 +247,9 @@ impl Fx {
         }
         if let Some(impact) = &self.impact {
             d += impact.shake(now) * cell * 0.18;
+        }
+        if game.state == GameState::GameOver {
+            return d;
         }
         d + jonesin::shake(game) * cell * 0.22
     }

@@ -373,6 +373,11 @@ pub async fn run() {
                     let finished = current_game.state == GameState::GameOver;
                     if finished && prev_state != GameState::GameOver {
                         crate::game_center::submit_score(current_game.score);
+                        // The run is over: its auto-save mustn't come back through Load Game (and
+                        // be scored a second time).
+                        if let Err(e) = std::fs::remove_file(&save_path) {
+                            log::debug!("No save to remove at game over: {e}");
+                        }
                     }
                     let save_score = touch_mode && key_pressed(KeyCode::Enter);
                     if finished && touch_mode {
