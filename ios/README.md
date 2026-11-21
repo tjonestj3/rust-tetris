@@ -60,6 +60,13 @@ Duo can fold and unfold mid-game:
   whichever gives the bigger board. The panels and pause screen are `src/app/touch_view.rs`; the
   board and its effects are the desktop drawing, through a camera that maps the canvas's board onto
   the new board rect.
+- **Open Duo extras**: the right column's space under Next (`PlayLayout::feed`) shows this game's
+  tallies (pieces, pieces per second, Tetrises, T-spins, best combo, best back-to-back run) and,
+  for a moment after a special clear, a callout (`T-SPIN DOUBLE`, `BACK-TO-BACK TETRIS`,
+  `COMBO 3`). The tallies are saved with the game.
+- **Folding mid-game pauses** (so does unfolding or turning the phone: the board jumps). Unfolded
+  or sideways (two columns), it counts 3-2-1 back into play by itself; folded, it waits for
+  Resume, which counts 3-2-1 too (`src/app/duo.rs`).
 - **Menus** fit just the part of the canvas they use (`MenuSystem::content_bounds`) to the screen,
   so they come out large; the backdrop covers the whole screen. The leaderboard shows rank, name and
   score, and name entry sits in the top half, above the keyboard.
@@ -71,6 +78,7 @@ Desktop play is unchanged. Desktop flags for checking the touch screens:
 cargo run -- --touch --window 458x667          # mouse = finger; Duo-folded-ish size
 TETRIS_INSETS=59,0,34,0 cargo run -- --touch   # fake safe-area insets (top,left,bottom,right)
 cargo run -- --touch --play [--paused]         # straight into a game (paused)
+cargo run -- --touch --play --paused --countdown --callout   # the 3-2-1 and a clear callout
 cargo run -- --touch --menu settings           # or leaderboard, name
 TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 ```

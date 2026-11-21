@@ -10,6 +10,7 @@ use crate::{MenuSystem, MenuAction};
 use crate::graphics::view::{map_camera, Layout, Margins, FULL_CANVAS};
 use crate::input::touch::{self, key_down, key_pressed, Mode};
 
+mod duo;
 mod touch_view;
 
 /// The longest frame time the game is given, in seconds: a slow frame slows the game down a
@@ -53,7 +54,7 @@ pub fn window_conf() -> Conf {
 }
 
 /// How touches are read on the current screen.
-fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) -> Mode {
+fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, counting_down: bool) -> Mode {
     use crate::menu::MenuState;
     match app_state {
         AppState::Menu | AppState::GameOver => match menu.state {
@@ -61,6 +62,8 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem) 
             _ => Mode::Menu,
         },
         AppState::Playing => match game {
+            // Counting back into play: no buttons, no gestures until it's done.
+            Some(g) if g.state == GameState::Paused && counting_down => Mode::None,
             Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
             Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
             _ => Mode::None,
@@ -164,6 +167,20 @@ pub async fn run() {
     // The first frame's time includes loading everything: it's not time away.
     let mut first_frame = true;
 
+    // Touch: pausing when the Duo folds or unfolds mid-game, counting back in; the callout for
+    // the last special clear.
+    let mut pause_flow = duo::PauseFlow::default();
+    let mut callout = duo::Callout::default();
+    // `--countdown` (with `--play --paused`) and `--callout`, for checking how they look.
+    if std::env::args().any(|a| a == "--countdown") {
+        pause_flow.resume_pressed();
+    }
+    if std::env::args().any(|a| a == "--callout") {
+        use crate::scoring::{ClearRecord, LineClearType};
+        callout.show(&ClearRecord { kind: LineClearType::TSpinDouble, chain: 3, back_to_back: true, perfect: false });
+        callout.tick(0.5);
+    }
+
     // Main application loop
     loop {
         // A long frame means the app was away (in the background, the screen locked): that time
@@ -185,8 +202,12 @@ pub async fn run() {
         // kept in both looks, so the board stays the same size and place when the look changes.
         let around = if touch_mode { legacy_board_margins() } else { Margins::default() };
         let layout = Layout::compute(canvas_src, around);
+        let screen_size = (layout.screen.w, layout.screen.h);
+        if touch_mode && app_state != AppState::Playing {
+            pause_flow.idle(screen_size);
+        }
         if touch_mode {
-            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system);
+            let mode = touch_mode_for(&app_state, game.as_ref(), &menu_system, pause_flow.countdown().is_some());
             touch::begin_frame(&layout, mode);
             touch::set_keyboard(mode == Mode::NameEntry);
             // Not clipped: the backdrop covers the whole screen, and menu effects may spill over.
@@ -250,6 +271,7 @@ pub async fn run() {
                 }
                 // New and loaded games start in the look chosen in Settings.
                 if matches!(action, MenuAction::NewGame | MenuAction::LoadGame) {
+                    callout = duo::Callout::default();
                     if let Some(g) = game.as_mut() {
                         g.legacy_mode = menu_system.settings.legacy_mode;
                     }
@@ -265,7 +287,7 @@ pub async fn run() {
                     let felt = FeltState::of(current_game);
 
                     // Handle game input
-                    handle_game_input(current_game, &audio_system, &mut app_state, &mut menu_system);
+                    handle_game_input(current_game, &audio_system, &mut app_state, &mut menu_system, &mut pause_flow);
                     
                     // Store previous state for audio event detection
                     let prev_score = current_game.score;
@@ -277,6 +299,21 @@ pub async fn run() {
                     if came_back && current_game.state == GameState::Playing {
                         log::info!("Back after {frame_time:.1}s away: pausing");
                         current_game.toggle_pause();
+                    }
+
+                    // The Duo folding or unfolding (or the phone turning) mid-game.
+                    if touch_mode {
+                        match pause_flow.frame(screen_size, layout.play.style, current_game.state, delta_time) {
+                            duo::PauseAction::Pause => {
+                                log::info!("Screen now {:.0}x{:.0}: pausing", screen_size.0, screen_size.1);
+                                current_game.toggle_pause();
+                                audio_system.play_sound(SoundType::Pause);
+                            }
+                            duo::PauseAction::Resume if current_game.state == GameState::Paused => {
+                                current_game.toggle_pause();
+                            }
+                            _ => {}
+                        }
                     }
 
                     // Update game logic
@@ -301,6 +338,18 @@ pub async fn run() {
                     // Detect and play audio for game events
                     detect_and_play_audio_events(current_game, &audio_system, prev_score, prev_level, prev_lines_cleared, was_clearing_lines, prev_state);
                     felt.haptics_since(current_game);
+                    let clears = current_game.scoring_system.clears();
+                    if clears < felt.clears {
+                        // A new game (R): the last one's callout goes.
+                        callout = duo::Callout::default();
+                    } else if clears != felt.clears {
+                        if let Some(clear) = current_game.scoring_system.last_clear() {
+                            callout.show(&clear);
+                        }
+                    }
+                    if current_game.state == GameState::Playing {
+                        callout.tick(delta_time);
+                    }
                     
                     // Auto-save periodically during gameplay
                     if current_game.state == GameState::Playing && current_time - last_save_time >= auto_save_interval {
@@ -335,7 +384,8 @@ pub async fn run() {
                             }
                             (t * 2.0).min(1.0).min((12.0 - t).max(0.0))
                         };
-                        touch_view::render(current_game, &background_texture, &layout, hint);
+                        let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout };
+                        touch_view::render(current_game, &background_texture, &layout, &overlay);
                     } else {
                         render_game(current_game, &background_texture, fps);
                     }
@@ -400,7 +450,13 @@ pub async fn run() {
 }
 
 /// Handle game input and transitions back to menu
-fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mut AppState, menu_system: &mut MenuSystem) {
+fn handle_game_input(
+    game: &mut Game,
+    audio_system: &AudioSystem,
+    app_state: &mut AppState,
+    menu_system: &mut MenuSystem,
+    pause_flow: &mut duo::PauseFlow,
+) {
     // Quit to menu
     if key_pressed(KeyCode::Escape) {
         *app_state = AppState::Menu;
@@ -430,9 +486,14 @@ fn handle_game_input(game: &mut Game, audio_system: &AudioSystem, app_state: &mu
         return;
     }
     
-    // Pause toggle (P key) - available when playing or paused
+    // Pause toggle (P key) - available when playing or paused. On touch screens Resume counts
+    // 3-2-1 back into play.
     if key_pressed(KeyCode::P) && (game.state == GameState::Playing || game.state == GameState::Paused) {
-        game.toggle_pause();
+        if game.state == GameState::Paused && crate::platform::is_touch_device() {
+            pause_flow.resume_pressed();
+        } else {
+            game.toggle_pause();
+        }
         audio_system.play_sound(SoundType::Pause);
         return;
     }

@@ -115,6 +115,9 @@ pub struct PlayLayout {
     pub hold: Rect,
     pub stats: Rect,
     pub pause: Rect,
+    /// Room for this game's stats and clear callouts: the open Duo's right column, between Next
+    /// and the pause button. `None` in the other layouts (no room).
+    pub feed: Option<Rect>,
     /// The gap between panels.
     pub gap: f32,
 }
@@ -175,6 +178,7 @@ impl PlayLayout {
             )
         };
 
+        let mut feed = None;
         let (frame, next, hold, stats, pause) = match style {
             HudStyle::OneColumn => {
                 let col_w = (safe.w - bw - 3.0 * m).min(cell * 7.0);
@@ -204,6 +208,11 @@ impl PlayLayout {
                 let stats = Rect::new(lx, hold.bottom() + m, col_w, frame.bottom() - (hold.bottom() + m));
                 let next = Rect::new(rx, y, col_w, ph);
                 let pause = Rect::new(rx + col_w - pause_size, frame.bottom() - pause_size, pause_size, pause_size);
+                let feed_y = next.bottom() + m;
+                let feed_h = pause.y - m - feed_y;
+                if feed_h >= cell * 4.0 {
+                    feed = Some(Rect::new(rx, feed_y, col_w, feed_h));
+                }
                 (frame, next, hold, stats, pause)
             }
             HudStyle::TopStrip => {
@@ -224,7 +233,7 @@ impl PlayLayout {
                 (frame, next, hold, stats, pause)
             }
         };
-        Self { style, board: inside(frame), frame, cell, next, hold, stats, pause, gap: m }
+        Self { style, board: inside(frame), frame, cell, next, hold, stats, pause, feed, gap: m }
     }
 }
 
@@ -362,6 +371,12 @@ mod tests {
         for (name, r) in [("next", p.next), ("hold", p.hold), ("stats", p.stats), ("pause", p.pause)] {
             assert!(!r.overlaps(&p.frame), "{name} {r:?} overlaps the board's frame {:?}", p.frame);
         }
+        if let Some(feed) = p.feed {
+            assert!(inside(feed, area), "feed {feed:?} outside {w}x{h}");
+            for (name, r) in [("frame", p.frame), ("next", p.next), ("hold", p.hold), ("stats", p.stats), ("pause", p.pause)] {
+                assert!(!r.overlaps(&feed), "feed {feed:?} overlaps {name} {r:?}");
+            }
+        }
         assert_eq!(p.board.w, p.cell * 10.0);
         assert_eq!(p.board.h, p.cell * 20.0);
     }
@@ -388,6 +403,20 @@ mod tests {
         assert_eq!(p.style, HudStyle::TwoColumns);
         assert!(p.board.h >= 449.0 - 2.0 * 10.0 - 20.0);
         assert_sane(&p, 568.0, 449.0);
+    }
+
+    #[test]
+    fn open_duo_has_room_for_the_feed() {
+        let around = Margins { left: 1.35, top: 0.8, right: 1.25, bottom: 1.4 };
+        let p = PlayLayout::compute(Rect::new(0.0, 0.0, 568.0, 449.0), 1.0, around);
+        let feed = p.feed.expect("a feed on the open Duo");
+        // Under Next, over the pause button, in Next's column.
+        assert!(feed.y >= p.next.bottom() && feed.bottom() <= p.pause.y, "{p:?}");
+        assert_eq!((feed.x, feed.w), (p.next.x, p.next.w));
+        assert!(feed.h >= p.cell * 8.0, "feed only {} tall", feed.h);
+        // Folded and on tall phones, no room for it.
+        assert_eq!(play(458.0, 574.0).feed, None);
+        assert_eq!(play(390.0, 751.0).feed, None);
     }
 
     #[test]
