@@ -8,10 +8,7 @@
 
 use macroquad::prelude::*;
 
-use super::{
-    draw_ghost_block_cursor, draw_ghost_throw_animation, draw_legacy_board_with_data, draw_legacy_falling_piece,
-    draw_legacy_ghost_piece, draw_line_clear_animation, draw_tetris_celebration,
-};
+use super::draw_ghost_block_cursor;
 use crate::game::config::{BOARD_WIDTH, BUFFER_HEIGHT, LINES_PER_LEVEL, VISIBLE_HEIGHT};
 use crate::game::{Game, GameState};
 use crate::graphics::style::{self, alpha, TERM_DIM, TERM_GREEN};
@@ -28,7 +25,7 @@ use super::fx::{self, Fx};
 struct Look(&'static Theme);
 
 impl Look {
-    /// Ruled text frames and the legacy text board (the Terminal theme).
+    /// Ruled text frames for the panels (the Terminal theme).
     fn terminal(self) -> bool {
         self.0.terminal
     }
@@ -83,39 +80,19 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     let hint = overlay.hint;
     let p = &layout.play;
     let look = Look(theme::get(overlay.theme));
-    let legacy = look.terminal();
     // The theme's font for everything on this screen; the menus keep theirs.
     let menu_face = crate::graphics::text::face();
     crate::graphics::text::set_face(look.0.face);
 
     let _ = background;
     screen_camera();
-    if legacy {
-        clear_background(BLACK);
-        // The classic look: the desktop drawing, through the board camera.
-        map_camera(CANVAS_BOARD, p.board);
-        draw_legacy_board_with_data(&game.board);
-        if game.is_clearing_lines() {
-            draw_line_clear_animation(game);
-        } else {
-            if let Some(ghost) = game.calculate_ghost_piece() {
-                draw_legacy_ghost_piece(&ghost);
-            }
-            if let Some(ref piece) = game.current_piece {
-                draw_legacy_falling_piece(piece);
-            }
-        }
-    } else {
-        (look.0.backdrop)(get_time() as f32);
-        draw_board(game, p, layout.unit, overlay.fx, look);
-        map_camera(CANVAS_BOARD, p.board);
-    }
+    // Every theme, Terminal too, draws the board through its own functions and plays the
+    // effects (super::fx) in its own style.
+    (look.0.backdrop)(get_time() as f32);
+    draw_board(game, p, layout.unit, overlay.fx, look);
+    map_camera(CANVAS_BOARD, p.board);
     if game.is_ghost_cursor_visible() {
         draw_ghost_block_cursor(game);
-    }
-    // The legacy look keeps its stick figure; the other draws a comet (super::fx).
-    if legacy && game.is_ghost_throw_active() && game.state != GameState::GameOver {
-        draw_ghost_throw_animation(game);
     }
 
     // The panels.
@@ -151,14 +128,8 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
     // The TETRIS celebration, over everything, at the size of the whole canvas fitted to the screen.
     // Not behind the game-over card: the celebration's clock stops with the game.
     if game.is_tetris_celebration_active() && game.state != GameState::GameOver {
-        if legacy {
-            map_camera(layout.canvas_src, layout.game);
-            draw_tetris_celebration(game);
-            screen_camera();
-        } else {
-            screen_camera();
-            fx::jonesin::draw(game, layout, &overlay.fx.palette);
-        }
+        screen_camera();
+        fx::jonesin::draw(game, layout, &overlay.fx.palette);
     }
 
     match game.state {

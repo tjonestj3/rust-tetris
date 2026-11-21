@@ -7,7 +7,7 @@ use macroquad::prelude::*;
 use super::bevel;
 use crate::graphics::style;
 use crate::graphics::text::{draw_text, measure_text, Face};
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const TEAL: Color = Color::new(0.0, 0.5, 0.5, 1.0);
 const FACE: Color = Color::new(0.75, 0.75, 0.75, 1.0);
@@ -79,6 +79,12 @@ pub const THEME: Theme = Theme {
         chip: FACE,
         block,
         panel,
+        window: Some(window),
+        styles: FxStyles {
+            jonesin: JonesinStyle::Dialog,
+            label: LabelStyle::Window,
+            ..DEFAULT_STYLES
+        },
     },
 };
 

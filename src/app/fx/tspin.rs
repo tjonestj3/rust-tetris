@@ -4,7 +4,7 @@
 
 use macroquad::prelude::*;
 
-use super::{banner, cell_pos, style, FxPalette};
+use super::{cell_pos, label, style, FxPalette};
 use crate::game::Game;
 use crate::game::config::{BOARD_HEIGHT, BOARD_WIDTH, BUFFER_HEIGHT};
 
@@ -61,13 +61,8 @@ impl TspinFx {
             draw_rectangle_lines(p.x + inset, p.y + inset, cell - 2.0 * inset, cell - 2.0 * inset, (cell * 0.1).max(2.0), style::alpha(pal.stamp, on));
             draw_rectangle(p.x + inset, p.y + inset, cell - 2.0 * inset, cell - 2.0 * inset, style::alpha(pal.stamp, 0.25 * on));
         }
-        let label = match self.lines {
-            0 => "T-SPIN",
-            1 => "T-SPIN SINGLE",
-            2 => "T-SPIN DOUBLE",
-            _ => "T-SPIN TRIPLE",
-        };
-        banner(label, board, board.y + board.h * 0.3, cell, t, LABEL_IN, LABEL_OUT, pal.tspin, WHITE);
+        let name = pal.styles.tspin_names[self.lines.min(3)];
+        label::draw(name, board, board.y + board.h * 0.3, cell, t, LABEL_IN, LABEL_OUT, pal.tspin, pal);
     }
 }
 

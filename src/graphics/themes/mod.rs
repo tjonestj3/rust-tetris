@@ -37,7 +37,7 @@ pub(super) fn hash01(i: u32, k: u32) -> f32 {
 /// One mesh in a single draw, so each pixel is blended once (stacking dozens of translucent
 /// circles cost the GPU dearly at full iPhone resolution). The fall-off matches 40 stacked
 /// rings of 3% each.
-pub(super) fn soft_circle(x: f32, y: f32, r: f32, color: Color) {
+pub fn soft_circle(x: f32, y: f32, r: f32, color: Color) {
     const RINGS: usize = 10;
     const SEGMENTS: usize = 48;
     let alpha_at = |d: f32| 1.0 - (1.0 - color.a * 0.03).powf(40.0 * (1.0 - d));

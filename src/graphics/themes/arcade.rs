@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 use super::hash01;
 use crate::graphics::style;
 use crate::graphics::text::Face;
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const CYAN: Color = Color::new(0.0, 0.94, 1.0, 1.0);
 const PINK: Color = Color::new(1.0, 0.17, 0.84, 1.0);
@@ -72,6 +72,12 @@ pub const THEME: Theme = Theme {
         chip: BLACK,
         block,
         panel,
+        window: None,
+        styles: FxStyles {
+            jonesin: JonesinStyle::Marquee,
+            label: LabelStyle::Pixel,
+            ..DEFAULT_STYLES
+        },
     },
 };
 

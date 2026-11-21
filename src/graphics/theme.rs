@@ -36,18 +36,22 @@ pub enum Accent {
     Violet,
 }
 
+/// Draws a window titled `title` in `r` and returns the area inside it, below the title bar.
+/// `size` is the label text size; `u` the layout's unit.
+pub type WindowFn = fn(r: Rect, title: &str, accent: Color, size: f32, u: f32) -> Rect;
+
 pub struct Theme {
     pub id: ThemeId,
     /// As shown in Settings.
     pub name: &'static str,
-    /// Terminal-style text frames and the legacy text board (the Terminal theme).
+    /// Terminal-style ruled text frames for the panels (the Terminal theme).
     pub terminal: bool,
     /// The font everything on the play screen is drawn in.
     pub face: Face,
     /// Panels drawn as windows with a title bar (`None`: plain panels with their label inside):
     /// draws the window titled `title` and returns the area inside it, below the title bar.
     /// `size` is the label text size.
-    pub window: Option<fn(r: Rect, title: &str, accent: Color, size: f32, u: f32) -> Rect>,
+    pub window: Option<WindowFn>,
     /// Cyan, pink, gold, green, violet, in [`Accent`] order.
     pub accents: [Color; 5],
     /// Every label in this colour, whatever its accent (`None`: labels take their accent).
@@ -193,6 +197,70 @@ pub struct FxPalette {
     pub block: fn(x: f32, y: f32, size: f32, color: Color),
     /// A card's frame (the game-over card).
     pub panel: fn(r: Rect, accent: Color, u: f32),
+    /// The theme's window, for effects drawn as one (a dialog, a terminal window).
+    pub window: Option<WindowFn>,
+    /// Which version of each effect the theme uses.
+    pub styles: FxStyles,
+}
+
+/// Which version of each effect a theme uses (docs/superpowers/specs/2026-11-20-themes-design.md,
+/// "Animations are modular too"). The effects are in app::fx; a theme names its picks and takes
+/// [`DEFAULT_STYLES`] for the rest.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FxStyles {
+    pub jonesin: JonesinStyle,
+    /// How a label like T-SPIN DOUBLE crosses the board.
+    pub label: LabelStyle,
+    /// What a T-spin is called: no lines, then single, double, triple.
+    pub tspin_names: [&'static str; 4],
+}
+
+pub const DEFAULT_STYLES: FxStyles = FxStyles {
+    jonesin: JonesinStyle::Slam,
+    label: LabelStyle::Slant,
+    tspin_names: ["T-SPIN", "T-SPIN SINGLE", "T-SPIN DOUBLE", "T-SPIN TRIPLE"],
+};
+
+/// The ways JONES'IN! (a Tetris) plays out. Each lands its big moment with the fanfare's chord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JonesinStyle {
+    /// Letters slam down with a raised edge, shockwaves and confetti.
+    Slam,
+    /// Typed at a prompt in big block text, a cursor, a scanline flash.
+    Typed,
+    /// A command typed in a terminal window, the word printed big.
+    Shell,
+    /// A lit sign: chasing bulbs, letters flickering on like neon tubes, a CRT switch-off.
+    Marquee,
+    /// A message box that bounces off and leaves a trail of copies behind it.
+    Dialog,
+    /// Glossy tiles that bounce in like icons in a dock, and get sucked away.
+    Bounce,
+    /// A rubber stamp pressed down in ink.
+    Stamp,
+    /// A wooden plaque with the word carved and gilded.
+    Plaque,
+    /// A frosted card, the letters fading in, soft colour blooming behind.
+    Bloom,
+}
+
+/// The ways a label (T-SPIN DOUBLE) crosses the board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelStyle {
+    /// A slanted bar slides in and out.
+    Slant,
+    /// Typed at a prompt, then deleted.
+    Typed,
+    /// Flat pixel text with a hard shadow that blinks in.
+    Pixel,
+    /// A small window slides in.
+    Window,
+    /// A wooden plank with brass letters.
+    Plank,
+    /// An ink stamp.
+    Stamp,
+    /// A frosted pill.
+    Pill,
 }
 
 impl Default for FxPalette {

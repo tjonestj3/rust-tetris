@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 
 use crate::graphics::style;
 use crate::graphics::text::{draw_text, measure_text, Face};
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const ORANGE: Color = Color::new(0.914, 0.329, 0.125, 1.0);
 const AUBERGINE: Color = Color::new(0.467, 0.161, 0.325, 1.0);
@@ -69,6 +69,12 @@ pub const THEME: Theme = Theme {
         chip: HEADER,
         block,
         panel,
+        window: Some(window),
+        styles: FxStyles {
+            jonesin: JonesinStyle::Shell,
+            label: LabelStyle::Window,
+            ..DEFAULT_STYLES
+        },
     },
 };
 
