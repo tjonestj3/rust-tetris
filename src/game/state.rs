@@ -251,9 +251,15 @@ impl Game {
             piece.move_by(0, 1);
             
             if self.is_piece_valid(&piece) {
-                // Successfully moved down - reset lock delay state
+                // Successfully moved down - any earlier lock delay is void.
+                // If this row is where the piece lands, the lock delay starts
+                // now, on touchdown, rather than on the next gravity tick
+                // (which would add a whole drop interval to the lock delay).
+                let mut below = piece.clone();
+                below.move_by(0, 1);
+                let grounded = !self.is_piece_valid(&below);
                 self.current_piece = Some(piece);
-                self.piece_is_locking = false;
+                self.piece_is_locking = grounded;
                 self.lock_delay_timer = 0.0;
                 return true;
             } else {

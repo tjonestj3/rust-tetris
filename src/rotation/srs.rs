@@ -69,10 +69,16 @@ impl SRSRotationSystem {
         board: &Board,
         target_rotation: RotationState,
     ) -> RotationResult {
+        // The O-piece doesn't rotate in SRS: the rotation succeeds but the
+        // piece, including its rotation state, is left exactly as it was.
+        if piece.piece_type == TetrominoType::O {
+            return RotationResult::Success { new_piece: piece.clone() };
+        }
+
         let from_state = piece.rotation;
         let kick_offsets = get_wall_kick_offsets(piece.piece_type, from_state, target_rotation);
-        
-        // If no kicks are available (like O-piece), just try basic rotation
+
+        // If no kicks are available, just try basic rotation
         if kick_offsets.is_empty() {
             return self.try_basic_rotation(piece, board, target_rotation);
         }
