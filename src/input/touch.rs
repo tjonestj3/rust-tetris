@@ -68,6 +68,8 @@ struct Finger {
     new: bool,
     /// Lifted this frame (it's still reported once).
     ended: bool,
+    /// iOS took the touch away (a system gesture, a call): ended, but not lifted on purpose.
+    cancelled: bool,
 }
 
 /// A gesture in progress: from the first finger down until it lifts.
@@ -221,6 +223,7 @@ fn read_fingers() -> Vec<Finger> {
                 pos: t.position,
                 new: !seen.contains(&t.id),
                 ended: matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled),
+                cancelled: matches!(t.phase, TouchPhase::Cancelled),
             })
             // One we already saw that has ended is just gone; a new one that's ended was a
             // tap too quick to span two frames, and still counts.
@@ -234,7 +237,7 @@ fn read_fingers() -> Vec<Finger> {
     );
     if down || pressed || released {
         let (x, y) = mouse_position();
-        return vec![Finger { id: u64::MAX, pos: vec2(x, y), new: pressed, ended: released && !down }];
+        return vec![Finger { id: u64::MAX, pos: vec2(x, y), new: pressed, ended: released && !down, cancelled: false }];
     }
     Vec::new()
 }
@@ -270,6 +273,11 @@ fn track_gesture(s: &mut State, layout: &Layout, fingers: &[Finger], fresh: &[Fi
     g.max_fingers = g.max_fingers.max(down_now.max(mine.len().min(2)));
 
     let finger = fingers.iter().find(|f| f.id == g.id).copied();
+    // iOS took the touch (e.g. a pull from the screen's edge): drop the gesture, don't act on it.
+    if finger.map(|f| f.cancelled).unwrap_or(false) {
+        s.gesture = None;
+        return;
+    }
     let last = g.samples.back().map(|s| s.1).unwrap_or(g.start);
     let pos = finger.map(|f| f.pos).unwrap_or(last);
 
@@ -495,7 +503,7 @@ mod tests {
             .map(|(t, fs)| {
                 let fingers: Vec<Finger> = fs
                     .iter()
-                    .map(|&(id, x, y, new, ended)| Finger { id, pos: vec2(x, y), new, ended })
+                    .map(|&(id, x, y, new, ended)| Finger { id, pos: vec2(x, y), new, ended, cancelled: false })
                     .collect();
                 let fresh: Vec<Finger> = fingers.iter().copied().filter(|f| f.new).collect();
                 s.gestures = Gestures::default();
@@ -503,6 +511,23 @@ mod tests {
                 s.gestures
             })
             .collect()
+    }
+
+    #[test]
+    fn a_cancelled_swipe_does_nothing() {
+        // A quick drag down that iOS takes over (Notification Center) and cancels: no hard drop.
+        let mut s = State::default();
+        let l = layout();
+        let mut fired = Gestures::default();
+        for (t, y, new, cancelled) in [(0.0, 100.0, true, false), (0.03, 200.0, false, false), (0.06, 320.0, false, true)] {
+            let f = Finger { id: 1, pos: vec2(450.0, y), new, ended: cancelled, cancelled };
+            let fresh: Vec<Finger> = if new { vec![f] } else { vec![] };
+            s.gestures = Gestures::default();
+            track_gesture(&mut s, &l, &[f], &fresh, t);
+            fired = total(&[fired, s.gestures]);
+        }
+        assert!(!fired.hard_drop && !fired.rotate_cw && fired.tap_cell.is_none());
+        assert!(s.gesture.is_none());
     }
 
     fn total(gs: &[Gestures]) -> Gestures {

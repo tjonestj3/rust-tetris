@@ -574,7 +574,7 @@ fn handle_game_input(
     // Legacy mode toggle (L key) - available in any state except game over
     if key_pressed(KeyCode::L) && game.state != GameState::GameOver {
         // The next theme (Terminal is the legacy look), remembered for the next game too.
-        menu_system.settings.cycle_theme();
+        menu_system.settings.cycle_look();
         game.legacy_mode = menu_system.settings.legacy_mode;
         if let Err(e) = menu_system.settings.save_to_file(crate::menu::GameSettings::default_path()) {
             log::warn!("Failed to save settings: {}", e);

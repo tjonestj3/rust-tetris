@@ -33,11 +33,32 @@ pub(super) fn hash01(i: u32, k: u32) -> f32 {
     (h & 0xFFFF) as f32 / 65536.0
 }
 
-/// Soft edge: a filled circle drawn as rings fading out, for blurred blobs of light.
+/// Soft edge: a blurred blob of light, brightest in the middle and fading to nothing at `r`.
+/// One mesh in a single draw, so each pixel is blended once (stacking dozens of translucent
+/// circles cost the GPU dearly at full iPhone resolution). The fall-off matches 40 stacked
+/// rings of 3% each.
 pub(super) fn soft_circle(x: f32, y: f32, r: f32, color: Color) {
-    const RINGS: usize = 40;
-    for i in 0..RINGS {
-        let k = 1.0 - i as f32 / RINGS as f32;
-        draw_circle(x, y, r * k, style::alpha(color, color.a * 0.03));
+    const RINGS: usize = 10;
+    const SEGMENTS: usize = 48;
+    let alpha_at = |d: f32| 1.0 - (1.0 - color.a * 0.03).powf(40.0 * (1.0 - d));
+    let mut vertices = Vec::with_capacity(1 + RINGS * SEGMENTS);
+    vertices.push(Vertex::new(x, y, 0.0, 0.0, 0.0, style::alpha(color, alpha_at(0.0))));
+    for ring in 1..=RINGS {
+        let d = ring as f32 / RINGS as f32;
+        let c = style::alpha(color, alpha_at(d));
+        for seg in 0..SEGMENTS {
+            let a = seg as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+            vertices.push(Vertex::new(x + a.cos() * r * d, y + a.sin() * r * d, 0.0, 0.0, 0.0, c));
+        }
     }
+    let at = |ring: usize, seg: usize| (1 + (ring - 1) * SEGMENTS + seg % SEGMENTS) as u16;
+    let mut indices = Vec::with_capacity(SEGMENTS * 3 * (2 * RINGS - 1));
+    for seg in 0..SEGMENTS {
+        indices.extend_from_slice(&[0, at(1, seg), at(1, seg + 1)]);
+        for ring in 1..RINGS {
+            let (a, b, c, d) = (at(ring, seg), at(ring, seg + 1), at(ring + 1, seg), at(ring + 1, seg + 1));
+            indices.extend_from_slice(&[a, c, d, a, d, b]);
+        }
+    }
+    draw_mesh(&Mesh { vertices, indices, texture: None });
 }

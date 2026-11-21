@@ -85,6 +85,18 @@ impl GameSettings {
         self.theme = Some(next);
         self.legacy_mode = next == ThemeId::Terminal;
     }
+
+    /// The next look from a key or the desktop menu: every theme on touch screens, but the desktop
+    /// only draws the modern and legacy looks, so there it swaps between Neon and Terminal.
+    pub fn cycle_look(&mut self) {
+        if crate::platform::is_touch_device() {
+            self.cycle_theme();
+        } else {
+            let next = if self.theme() == ThemeId::Terminal { ThemeId::Neon } else { ThemeId::Terminal };
+            self.theme = Some(next);
+            self.legacy_mode = next == ThemeId::Terminal;
+        }
+    }
     
     /// Get the default settings file path
     pub fn default_path() -> std::path::PathBuf {
@@ -319,7 +331,7 @@ impl MenuSystem {
                         self.settings.volume = (self.settings.volume + 0.1).min(1.0);
                     }
                 },
-                2 => self.settings.cycle_theme(),
+                2 => self.settings.cycle_look(),
                 _ => {},
             }
         }
@@ -852,7 +864,14 @@ impl MenuSystem {
         }
         
         // Legacy look
-        let legacy_text = format!("THEME: {}", crate::graphics::theme::get(self.settings.theme()).name);
+        let look = if touch {
+            crate::graphics::theme::get(self.settings.theme()).name
+        } else if self.settings.legacy_mode {
+            "TERMINAL"
+        } else {
+            "NEON"
+        };
+        let legacy_text = format!("THEME: {}", look);
         let legacy_w = measure_text(&legacy_text, None, option_size as u16, 1.0).width;
         let legacy_x = (WINDOW_WIDTH as f32 - legacy_w) / 2.0;
         let legacy_y = option_y_start + option_spacing * 2.75;
