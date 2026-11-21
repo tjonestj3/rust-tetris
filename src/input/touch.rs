@@ -23,6 +23,7 @@ use std::collections::VecDeque;
 use macroquad::prelude::*;
 use crate::graphics::text::{draw_text, measure_text};
 
+use crate::graphics::theme::ThemeId;
 use crate::graphics::view::Layout;
 
 /// What the screen is showing, which decides how touches are read.
@@ -31,16 +32,16 @@ pub enum Mode {
     None,
     /// Menus: taps on the canvas.
     Menu,
-    /// Playing: gestures, plus the pause icon (`legacy`: the game is in the legacy look).
-    Game { legacy: bool },
+    /// Playing: gestures, plus the pause icon (drawn in `theme`).
+    Game { theme: ThemeId },
     /// Paused: Resume / Theme / Menu buttons (`legacy`: the game is in the Terminal theme;
     /// `theme`: the theme's name, on its button).
-    Paused { legacy: bool, theme: &'static str },
+    Paused { theme: ThemeId },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
     /// The game-over card is up: PLAY AGAIN (R) and MENU (Escape), or SAVE SCORE (Enter) when
     /// the score makes the leaderboard.
-    GameOver { legacy: bool, high_score: bool },
+    GameOver { theme: ThemeId, high_score: bool },
 }
 
 /// What the player's fingers did this frame, for the game to apply.
@@ -105,8 +106,8 @@ struct Button {
     rect: Rect,
     key: KeyCode,
     label: &'static str,
-    /// Drawn in the legacy look (green on black).
-    legacy: bool,
+    /// The theme it's drawn in.
+    theme: ThemeId,
 }
 
 #[derive(Default)]
@@ -378,7 +379,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 button(shrink(layout.play.stats), KeyCode::B, PANEL),
             ]
         }
-        Mode::Paused { theme, .. } => {
+        Mode::Paused { theme } => {
             // Below the pause screen's text (app::touch_view::draw_pause): Resume, then Legacy
             // (the L key: switch the look) and Menu side by side.
             let (w, h, gap) = ((260.0 * u).min(layout.safe.w * 0.8), 52.0 * u, 14.0 * u);
@@ -388,7 +389,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
             let (left, low) = (cx - w / 2.0, cy + gap / 2.0);
             vec![
                 button(Rect::new(left, cy - h - gap / 2.0, w, h), KeyCode::P, "RESUME"),
-                button(Rect::new(left, low, half, h), KeyCode::L, theme),
+                button(Rect::new(left, low, half, h), KeyCode::L, crate::graphics::theme::get(theme).name),
                 button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
@@ -409,8 +410,8 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
         }
         _ => Vec::new(),
     };
-    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true, .. } | Mode::GameOver { legacy: true, .. } = mode {
-        buttons.iter_mut().for_each(|b| b.legacy = true);
+    if let Mode::Game { theme } | Mode::Paused { theme } | Mode::GameOver { theme, .. } = mode {
+        buttons.iter_mut().for_each(|b| b.theme = theme);
     }
     buttons
 }
@@ -425,7 +426,7 @@ pub fn game_over_card(layout: &Layout) -> Rect {
 }
 
 fn button(rect: Rect, key: KeyCode, label: &'static str) -> Button {
-    Button { rect, key, label, legacy: false }
+    Button { rect, key, label, theme: ThemeId::Neon }
 }
 
 fn grow(r: Rect, by: f32) -> Rect {
@@ -436,20 +437,22 @@ fn draw_button(b: &Button, u: f32) {
     if b.label == PANEL {
         return;
     }
-    use crate::graphics::style::{self, CYAN, GOLD, INK, PINK, TERM_GREEN, VIOLET};
+    use crate::graphics::style::{self, TERM_GREEN};
+    use crate::graphics::theme::{self, Accent};
     let r = b.rect;
-    let ink = if b.legacy { TERM_GREEN } else { INK };
+    let t = theme::get(b.theme);
+    let ink = t.value;
     let accent = match b.label {
-        "II" => PINK,
-        "MENU" => CYAN,
-        "RESUME" | "PLAY AGAIN" | "SAVE SCORE" => GOLD,
+        "II" => Accent::Pink,
+        "MENU" => Accent::Cyan,
+        "RESUME" | "PLAY AGAIN" | "SAVE SCORE" => Accent::Gold,
         // The theme button, named for the theme.
-        _ => VIOLET,
+        _ => Accent::Violet,
     };
-    if b.legacy {
+    if t.terminal {
         style::term_box(r, TERM_GREEN, 0.9, u);
     } else {
-        style::panel(r, accent, u);
+        (t.panel)(r, t.accent(accent), u);
     }
     let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     if b.label == "II" {

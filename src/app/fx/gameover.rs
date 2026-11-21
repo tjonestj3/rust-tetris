@@ -77,10 +77,10 @@ impl GameOverFx {
         }
 
         let label = if self.high_score { "NEW HIGH SCORE!" } else { "SCORE" };
-        text_centered(label, r.center().x, r.y + r.h * 0.4, (size * 0.42).max(10.0), pal.stamp);
+        text_centered(label, r.center().x, r.y + r.h * 0.4, (size * 0.42).max(10.0), pal.card_label);
         let count = ease_out_cubic(((t - CARD_IN - CARD_RISE) / COUNT).clamp(0.0, 1.0));
         let shown = (game.score as f32 * count).round() as u32;
-        text_centered(&shown.to_string(), r.center().x, r.y + r.h * 0.56, size * 0.8, WHITE);
+        text_centered(&shown.to_string(), r.center().x, r.y + r.h * 0.56, size * 0.8, pal.card_ink);
     }
 }
 

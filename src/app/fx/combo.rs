@@ -61,10 +61,10 @@ impl ComboFx {
         let r = cell * (1.05 + 0.1 * self.n.min(6) as f32) * (1.0 + 0.25 * pop) * (1.0 - 0.2 * crack);
         let c = vec2(board.right() - r - cell * 0.35, board.y + r + cell * 0.35 + crack * crack * cell * 1.5);
         let a = 1.0 - crack;
-        draw_circle(c.x, c.y, r, style::alpha(pal.dim, 0.88 * a));
+        draw_circle(c.x, c.y, r, style::alpha(pal.chip, 0.9 * a));
         draw_circle_lines(c.x, c.y, r, (cell * 0.12).max(2.0), style::alpha(color, a));
         text_centered("COMBO", c.x, c.y - r * 0.42, (r * 0.3).max(8.0), style::alpha(color, a));
-        text_centered(&self.n.to_string(), c.x, c.y + r * 0.12, r * (0.85 + 0.2 * pop), style::alpha(WHITE, a));
+        text_centered(&self.n.to_string(), c.x, c.y + r * 0.12, r * (0.85 + 0.2 * pop), style::alpha(pal.card_ink, a));
         if crack > 0.0 {
             // A jagged crack across it.
             let w = r * 1.6;

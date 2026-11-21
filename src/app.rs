@@ -67,13 +67,10 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, 
         AppState::Playing => match game {
             // Counting back into play: no buttons, no gestures until it's done.
             Some(g) if g.state == GameState::Paused && counting_down => Mode::None,
-            Some(g) if g.state == GameState::Paused => Mode::Paused {
-                legacy: g.is_legacy_mode(),
-                theme: crate::graphics::theme::get(menu.settings.theme()).name,
-            },
-            Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
+            Some(g) if g.state == GameState::Paused => Mode::Paused { theme: menu.settings.theme() },
+            Some(g) if g.state == GameState::Playing => Mode::Game { theme: menu.settings.theme() },
             Some(g) if g.state == GameState::GameOver => match game_over_card {
-                Some(high_score) => Mode::GameOver { legacy: g.is_legacy_mode(), high_score },
+                Some(high_score) => Mode::GameOver { theme: menu.settings.theme(), high_score },
                 None => Mode::None,
             },
             _ => Mode::None,
@@ -131,10 +128,12 @@ pub async fn run() {
             use crate::board::Cell;
             use crate::game::config::{BOARD_HEIGHT, BOARD_WIDTH, BUFFER_HEIGHT};
             let bottom = (BOARD_HEIGHT + BUFFER_HEIGHT) as i32 - 1;
+            let kinds = crate::tetromino::TetrominoType::all();
             for (row, gaps) in [(0, [2, 7]), (1, [4, 5]), (2, [0, 8])] {
                 for x in 0..BOARD_WIDTH as i32 {
                     if !gaps.contains(&x) {
-                        new_game.board.set_cell(x, bottom - row, Cell::Filled(Color::new(0.5, 0.4, 0.9, 1.0)));
+                        let color = kinds[((x + row * 3) as usize / 2) % kinds.len()].color();
+                        new_game.board.set_cell(x, bottom - row, Cell::Filled(color));
                     }
                 }
             }

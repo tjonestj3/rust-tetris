@@ -395,7 +395,7 @@ fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
                 style::term_bar(x, y + bar_h * 0.8, inner_w, label, done, TERM_GREEN);
             } else {
                 let bar = Rect::new(x, y, inner_w, bar_h);
-                style::round_rect(bar, bar_h / 2.0, Color::new(1.0, 1.0, 1.0, 0.10), Color::new(1.0, 1.0, 1.0, 0.06));
+                style::round_rect(bar, bar_h / 2.0, alpha(look.value(), 0.10), alpha(look.value(), 0.06));
                 if done > 0.0 {
                     let fill = Rect::new(x, y, (inner_w * done).max(bar_h), bar_h);
                     style::round_rect(fill, bar_h / 2.0, style::mix(look.accent(Accent::Green), WHITE, 0.25), look.accent(Accent::Cyan));
@@ -477,7 +477,7 @@ fn draw_feed(game: &Game, r: Rect, p: &PlayLayout, u: f32, look: Look, callout: 
         style::term_box(boxr, alpha(TERM_GREEN, a), 0.95 * a, u);
     } else {
         style::halo(boxr, radius, 10.0 * u, look.accent(Accent::Gold), 0.35 * a);
-        style::round_rect(boxr, radius, Color::new(0.20, 0.12, 0.38, 0.95 * a), Color::new(0.08, 0.04, 0.20, 0.95 * a));
+        style::round_rect(boxr, radius, alpha(look.0.surface[0], 0.95 * a), alpha(look.0.surface[1], 0.95 * a));
         style::round_outline(boxr, radius, (2.0 * u).max(1.0), alpha(look.accent(Accent::Gold), 0.9 * a));
     }
     const COLORS: [Accent; 3] = [Accent::Gold, Accent::Cyan, Accent::Pink];
@@ -524,7 +524,7 @@ fn draw_aim_banner(p: &PlayLayout, u: f32, look: Look) {
     if look.terminal() {
         style::term_box(r, TERM_GREEN, 0.9, u);
     } else {
-        style::round_rect(r, radius, Color::new(0.13, 0.10, 0.34, 0.88), Color::new(0.06, 0.04, 0.18, 0.88));
+        style::round_rect(r, radius, alpha(look.0.surface[0], 0.88), alpha(look.0.surface[1], 0.88));
         style::round_outline(r, radius, (1.5 * u).max(1.0), alpha(look.accent(Accent::Violet), 0.85));
     }
     centered(lines[0], r.center().x, r.y + size * 1.35, size, look.accent(Accent::Violet));
@@ -544,7 +544,7 @@ fn draw_hint(p: &PlayLayout, u: f32, alpha: f32, look: Look) {
     if look.terminal() {
         style::term_box(r, style::alpha(TERM_GREEN, alpha), 0.92 * alpha, u);
     } else {
-        style::round_rect(r, radius, Color::new(0.13, 0.10, 0.34, 0.92 * alpha), Color::new(0.06, 0.04, 0.18, 0.92 * alpha));
+        style::round_rect(r, radius, style::alpha(look.0.surface[0], 0.92 * alpha), style::alpha(look.0.surface[1], 0.92 * alpha));
         style::round_outline(r, radius, (1.5 * u).max(1.0), style::alpha(look.accent(Accent::Violet), 0.8 * alpha));
     }
     gesture_rows(&rows, r.center().x, r.y + size * 0.5, row_h, size, alpha, look);
