@@ -67,7 +67,10 @@ fn touch_mode_for(app_state: &AppState, game: Option<&Game>, menu: &MenuSystem, 
         AppState::Playing => match game {
             // Counting back into play: no buttons, no gestures until it's done.
             Some(g) if g.state == GameState::Paused && counting_down => Mode::None,
-            Some(g) if g.state == GameState::Paused => Mode::Paused { legacy: g.is_legacy_mode() },
+            Some(g) if g.state == GameState::Paused => Mode::Paused {
+                legacy: g.is_legacy_mode(),
+                theme: crate::graphics::theme::get(menu.settings.theme()).name,
+            },
             Some(g) if g.state == GameState::Playing => Mode::Game { legacy: g.is_legacy_mode() },
             Some(g) if g.state == GameState::GameOver => match game_over_card {
                 Some(high_score) => Mode::GameOver { legacy: g.is_legacy_mode(), high_score },
@@ -245,7 +248,13 @@ pub async fn run() {
         // The legacy board's borders go past the board: leave room for them. On touch the room is
         // kept in both looks, so the board stays the same size and place when the look changes.
         let around = if touch_mode { legacy_board_margins() } else { Margins::default() };
-        let layout = Layout::compute(canvas_src, around);
+        let mut layout = Layout::compute(canvas_src, around);
+        // The style the screen would have without the minimal look: the Duo's fold detection
+        // (duo::PauseFlow) goes by it.
+        let fold_style = layout.play.style;
+        if touch_mode && menu_system.settings.minimal {
+            layout.play = crate::graphics::view::PlayLayout::minimal(layout.safe, layout.unit, around);
+        }
         let screen_size = (layout.screen.w, layout.screen.h);
         if touch_mode && app_state != AppState::Playing {
             pause_flow.idle(screen_size);
@@ -349,7 +358,7 @@ pub async fn run() {
 
                     // The Duo folding or unfolding (or the phone turning) mid-game.
                     if touch_mode {
-                        match pause_flow.frame(screen_size, layout.play.style, current_game.state, delta_time) {
+                        match pause_flow.frame(screen_size, fold_style, current_game.state, delta_time) {
                             duo::PauseAction::Pause => {
                                 log::info!("Screen now {:.0}x{:.0}: pausing", screen_size.0, screen_size.1);
                                 current_game.toggle_pause();
@@ -448,8 +457,8 @@ pub async fn run() {
                             }
                             (t * 2.0).min(1.0).min((12.0 - t).max(0.0))
                         };
-                        effects.palette = crate::graphics::theme::get(touch_view::theme_of(current_game)).fx;
-                        let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout, fx: &effects };
+                        effects.palette = crate::graphics::theme::get(menu_system.settings.theme()).fx;
+                        let overlay = touch_view::Overlay { hint, countdown: pause_flow.countdown(), callout: &callout, fx: &effects, theme: menu_system.settings.theme() };
                         touch_view::render(current_game, &background_texture, &layout, &overlay);
                     } else {
                         render_game(current_game, &background_texture, fps);
@@ -565,9 +574,9 @@ fn handle_game_input(
     
     // Legacy mode toggle (L key) - available in any state except game over
     if key_pressed(KeyCode::L) && game.state != GameState::GameOver {
-        game.toggle_legacy_mode();
-        // Remembered for the next game too.
-        menu_system.settings.legacy_mode = game.is_legacy_mode();
+        // The next theme (Terminal is the legacy look), remembered for the next game too.
+        menu_system.settings.cycle_theme();
+        game.legacy_mode = menu_system.settings.legacy_mode;
         if let Err(e) = menu_system.settings.save_to_file(crate::menu::GameSettings::default_path()) {
             log::warn!("Failed to save settings: {}", e);
         }

@@ -84,6 +84,12 @@ impl Theme {
 /// Every theme, in the order Settings cycles through them.
 pub const ALL: [ThemeId; 2] = [ThemeId::Neon, ThemeId::Terminal];
 
+/// The theme after `id` in [`ALL`], round to the first.
+pub fn next(id: ThemeId) -> ThemeId {
+    let i = ALL.iter().position(|&t| t == id).unwrap_or(0);
+    ALL[(i + 1) % ALL.len()]
+}
+
 pub fn get(id: ThemeId) -> &'static Theme {
     match id {
         ThemeId::Neon => &themes::neon::THEME,
@@ -144,6 +150,15 @@ mod tests {
         for id in ALL {
             assert_eq!(get(id).id, id);
         }
+    }
+
+    #[test]
+    fn next_goes_round_every_theme() {
+        let mut id = ALL[0];
+        for _ in 0..ALL.len() {
+            id = next(id);
+        }
+        assert_eq!(id, ALL[0]);
     }
 
     #[test]

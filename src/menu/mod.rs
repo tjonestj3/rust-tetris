@@ -4,6 +4,7 @@ use macroquad::prelude::*;
 use crate::graphics::text::{draw_text, measure_text};
 use crate::game::config::*;
 use crate::leaderboard::Leaderboard;
+use crate::graphics::theme::ThemeId;
 use crate::Game;
 use crate::input::touch::{canvas_tap, key_down, key_pressed};
 use serde::{Serialize, Deserialize};
@@ -45,6 +46,13 @@ pub struct GameSettings {
     /// Haptics on iPhone (on unless turned off).
     #[serde(default = "on")]
     pub haptics_enabled: bool,
+    /// The touch screen's theme. `None` in settings from before themes: Terminal if the legacy
+    /// look was on, otherwise Neon (see [`GameSettings::theme`]).
+    #[serde(default)]
+    pub theme: Option<ThemeId>,
+    /// The minimal look: the biggest board, the score in a thin line, small Hold and Next.
+    #[serde(default)]
+    pub minimal: bool,
 }
 
 fn on() -> bool {
@@ -60,7 +68,22 @@ impl GameSettings {
             gesture_hint_seen: false,
             legacy_mode: false,
             haptics_enabled: true,
+            theme: None,
+            minimal: false,
         }
+    }
+
+    /// The touch screen's theme.
+    pub fn theme(&self) -> ThemeId {
+        self.theme.unwrap_or(if self.legacy_mode { ThemeId::Terminal } else { ThemeId::Neon })
+    }
+
+    /// Switch to the next theme. The legacy look (desktop, and the game's own flag) goes with
+    /// Terminal.
+    pub fn cycle_theme(&mut self) {
+        let next = crate::graphics::theme::next(self.theme());
+        self.theme = Some(next);
+        self.legacy_mode = next == ThemeId::Terminal;
     }
     
     /// Get the default settings file path
@@ -253,8 +276,10 @@ impl MenuSystem {
                 self.settings.volume = if next > 1.05 { 0.0 } else { next.min(1.0) };
             } else if (392.0..472.0).contains(&tap.y) {
                 self.selected_option = 2;
-                self.settings.legacy_mode = !self.settings.legacy_mode;
+                self.settings.cycle_theme();
             } else if (472.0..552.0).contains(&tap.y) {
+                self.settings.minimal = !self.settings.minimal;
+            } else if (552.0..632.0).contains(&tap.y) {
                 self.settings.haptics_enabled = !self.settings.haptics_enabled;
             } else {
                 tap_back = true;
@@ -294,7 +319,7 @@ impl MenuSystem {
                         self.settings.volume = (self.settings.volume + 0.1).min(1.0);
                     }
                 },
-                2 => self.settings.legacy_mode = !self.settings.legacy_mode,
+                2 => self.settings.cycle_theme(),
                 _ => {},
             }
         }
@@ -555,20 +580,29 @@ impl MenuSystem {
             style::round_rect(fill, 6.0, mix(CYAN, WHITE, 0.3), style::VIOLET);
         }
 
-        // Legacy: the terminal-style look, for new games.
-        switch("LEGACY", 400.0, self.settings.legacy_mode, style::VIOLET, style::VIOLET);
+        // Theme: tap to go to the next one; its name on the right.
+        let r = Rect::new(cx - 180.0, 400.0, 360.0, 64.0);
+        style::panel(r, style::VIOLET, 1.0);
+        let baseline = r.center().y + size * 0.35;
+        draw_text("THEME", r.x + 24.0, baseline, size, mix(style::VIOLET, WHITE, 0.6));
+        let name = crate::graphics::theme::get(self.settings.theme()).name;
+        let nw = measure_text(name, None, size as u16, 1.0).width;
+        draw_text(name, r.right() - 24.0 - nw, baseline, size, WHITE);
+
+        // Minimal: the biggest board, a thin score line, small Hold and Next.
+        switch("MINIMAL", 480.0, self.settings.minimal, CYAN, style::VIOLET);
 
         // Haptics: the iPhone's taps and rumbles on drops, clears and fireballs.
-        switch("HAPTICS", 480.0, self.settings.haptics_enabled, style::GOLD, PINK);
+        switch("HAPTICS", 560.0, self.settings.haptics_enabled, style::GOLD, PINK);
 
         let hint = "Tap to change  -  tap outside to go back";
         let hw = measure_text(hint, None, 18, 1.0).width;
-        draw_text(hint, cx - hw / 2.0, 580.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
+        draw_text(hint, cx - hw / 2.0, 660.0, 18.0, Color::new(0.85, 0.87, 1.0, 0.75));
 
         let info = crate::platform::display_info();
         for (i, line) in info.lines().enumerate() {
             let w = measure_text(line, None, 11, 1.0).width;
-            draw_text(line, cx - w / 2.0, 610.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
+            draw_text(line, cx - w / 2.0, 690.0 + i as f32 * 13.0, 11.0, Color::new(0.75, 0.78, 0.95, 0.6));
         }
     }
 
@@ -818,7 +852,7 @@ impl MenuSystem {
         }
         
         // Legacy look
-        let legacy_text = format!("LEGACY: {}", if self.settings.legacy_mode { "ON" } else { "OFF" });
+        let legacy_text = format!("THEME: {}", crate::graphics::theme::get(self.settings.theme()).name);
         let legacy_w = measure_text(&legacy_text, None, option_size as u16, 1.0).width;
         let legacy_x = (WINDOW_WIDTH as f32 - legacy_w) / 2.0;
         let legacy_y = option_y_start + option_spacing * 2.75;
@@ -1020,7 +1054,7 @@ impl MenuSystem {
             }
             // Touch settings are compact: the "go back" line sits under the haptics switch
             // (y 580), the display info under that.
-            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 555.0),
+            MenuState::Settings => Rect::new(250.0, 95.0, 400.0, 635.0),
             MenuState::Leaderboard => Rect::new(
                 TOUCH_TABLE_X - 20.0,
                 50.0,
@@ -1201,7 +1235,7 @@ impl Default for MenuSystem {
 }
 #[cfg(test)]
 mod settings_tests {
-    use super::GameSettings;
+    use super::{GameSettings, ThemeId};
 
     #[test]
     fn old_settings_have_haptics_on() {
@@ -1209,5 +1243,24 @@ mod settings_tests {
         let s: GameSettings = serde_json::from_str(old).unwrap();
         assert!(s.haptics_enabled);
         assert_eq!(s.volume, 0.5);
+    }
+
+    #[test]
+    fn old_settings_keep_their_look_as_a_theme() {
+        let legacy = r#"{"sound_enabled":true,"volume":0.5,"gesture_hint_seen":true,"legacy_mode":true}"#;
+        let s: GameSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(s.theme(), ThemeId::Terminal);
+        assert!(!s.minimal);
+        let modern = r#"{"sound_enabled":true,"volume":0.5,"gesture_hint_seen":true,"legacy_mode":false}"#;
+        assert_eq!(serde_json::from_str::<GameSettings>(modern).unwrap().theme(), ThemeId::Neon);
+    }
+
+    #[test]
+    fn cycling_themes_keeps_the_legacy_flag_in_step() {
+        let mut s = GameSettings::default();
+        for _ in 0..crate::graphics::theme::ALL.len() {
+            s.cycle_theme();
+            assert_eq!(s.legacy_mode, s.theme() == ThemeId::Terminal);
+        }
     }
 }

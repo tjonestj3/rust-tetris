@@ -33,8 +33,9 @@ pub enum Mode {
     Menu,
     /// Playing: gestures, plus the pause icon (`legacy`: the game is in the legacy look).
     Game { legacy: bool },
-    /// Paused: Resume / Legacy / Menu buttons (`legacy`: the game is in the legacy look).
-    Paused { legacy: bool },
+    /// Paused: Resume / Theme / Menu buttons (`legacy`: the game is in the Terminal theme;
+    /// `theme`: the theme's name, on its button).
+    Paused { legacy: bool, theme: &'static str },
     /// Typing a high score name (the iOS keyboard is up).
     NameEntry,
     /// The game-over card is up: PLAY AGAIN (R) and MENU (Escape), or SAVE SCORE (Enter) when
@@ -95,9 +96,6 @@ const BUTTON_SLACK: f32 = 10.0;
 /// The label of the HOLD and score panels' buttons: not drawn here (the panel is the button).
 const PANEL: &str = "";
 
-/// The pause screen's legacy-look switch.
-const LEGACY_ON: &str = "LEGACY ON";
-const LEGACY_OFF: &str = "LEGACY OFF";
 
 #[derive(Debug, Clone, Copy)]
 struct Button {
@@ -375,7 +373,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
                 button(shrink(layout.play.stats), KeyCode::B, PANEL),
             ]
         }
-        Mode::Paused { legacy } => {
+        Mode::Paused { theme, .. } => {
             // Below the pause screen's text (app::touch_view::draw_pause): Resume, then Legacy
             // (the L key: switch the look) and Menu side by side.
             let (w, h, gap) = ((260.0 * u).min(layout.safe.w * 0.8), 52.0 * u, 14.0 * u);
@@ -385,7 +383,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
             let (left, low) = (cx - w / 2.0, cy + gap / 2.0);
             vec![
                 button(Rect::new(left, cy - h - gap / 2.0, w, h), KeyCode::P, "RESUME"),
-                button(Rect::new(left, low, half, h), KeyCode::L, if legacy { LEGACY_ON } else { LEGACY_OFF }),
+                button(Rect::new(left, low, half, h), KeyCode::L, theme),
                 button(Rect::new(left + half + gap, low, half, h), KeyCode::Escape, "MENU"),
             ]
         }
@@ -406,7 +404,7 @@ fn buttons_for(layout: &Layout, mode: Mode) -> Vec<Button> {
         }
         _ => Vec::new(),
     };
-    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true } | Mode::GameOver { legacy: true, .. } = mode {
+    if let Mode::Game { legacy: true } | Mode::Paused { legacy: true, .. } | Mode::GameOver { legacy: true, .. } = mode {
         buttons.iter_mut().for_each(|b| b.legacy = true);
     }
     buttons
@@ -433,15 +431,15 @@ fn draw_button(b: &Button, u: f32) {
     if b.label == PANEL {
         return;
     }
-    use crate::graphics::style::{self, CYAN, GOLD, GREEN, INK, PINK, TERM_GREEN, VIOLET};
+    use crate::graphics::style::{self, CYAN, GOLD, INK, PINK, TERM_GREEN, VIOLET};
     let r = b.rect;
     let ink = if b.legacy { TERM_GREEN } else { INK };
     let accent = match b.label {
         "II" => PINK,
         "MENU" => CYAN,
-        LEGACY_ON => GREEN,
-        LEGACY_OFF => VIOLET,
-        _ => GOLD,
+        "RESUME" | "PLAY AGAIN" | "SAVE SCORE" => GOLD,
+        // The theme button, named for the theme.
+        _ => VIOLET,
     };
     if b.legacy {
         style::term_box(r, TERM_GREEN, 0.9, u);

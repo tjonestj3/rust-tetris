@@ -28,10 +28,6 @@ use super::fx::{self, Fx};
 struct Look(&'static Theme);
 
 impl Look {
-    fn of(game: &Game) -> Self {
-        Look(theme::get(theme_of(game)))
-    }
-
     /// Ruled text frames and the legacy text board (the Terminal theme).
     fn terminal(self) -> bool {
         self.0.terminal
@@ -49,11 +45,6 @@ impl Look {
     fn value(self) -> Color {
         self.0.value
     }
-}
-
-/// The theme `game` is shown in.
-pub(super) fn theme_of(game: &Game) -> ThemeId {
-    if game.is_legacy_mode() { ThemeId::Terminal } else { ThemeId::Neon }
 }
 
 /// On and off a few times a second, like a terminal cursor.
@@ -83,13 +74,15 @@ pub(super) struct Overlay<'a> {
     pub callout: &'a Callout,
     /// The effects: hard drop, line clear, JONES'IN!.
     pub fx: &'a Fx,
+    /// The theme (from the settings).
+    pub theme: ThemeId,
 }
 
 /// Draw the game screen.
 pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overlay: &Overlay) {
     let hint = overlay.hint;
     let p = &layout.play;
-    let look = Look::of(game);
+    let look = Look(theme::get(overlay.theme));
     let legacy = look.terminal();
 
     let _ = background;
@@ -128,11 +121,15 @@ pub(super) fn render(game: &Game, background: &Texture2D, layout: &Layout, overl
         draw_aim_banner(p, layout.unit, look);
     }
     let u = layout.unit;
-    let next = panel(p.next, "NEXT", look.accent(Accent::Cyan), p, u, look);
+    let minimal = p.style == HudStyle::Minimal;
+    let next = if minimal { mini_panel(p.next, look.accent(Accent::Cyan), p, u, look) } else { panel(p.next, "NEXT", look.accent(Accent::Cyan), p, u, look) };
     draw_piece(next, Some(game.next_piece), p.cell, 1.0, look);
-    let hold = panel(p.hold, "HOLD", look.accent(Accent::Pink), p, u, look);
+    let hold = if minimal { mini_panel(p.hold, look.accent(Accent::Pink), p, u, look) } else { panel(p.hold, "HOLD", look.accent(Accent::Pink), p, u, look) };
     draw_piece(hold, game.held_piece, p.cell, if game.can_hold() { 1.0 } else { 0.35 }, look);
-    if game.held_piece.is_none() {
+    if game.held_piece.is_none() && minimal {
+        let size = fit_size("HOLD", label_size(p, u) * 0.8, hold.w);
+        centered("HOLD", hold.center().x, hold.center().y + size * 0.35, size, look.0.hint);
+    } else if game.held_piece.is_none() {
         // The panel is a button (input::touch): say so until something's in it.
         let size = fit_size("TAP TO HOLD", label_size(p, u) * 0.9, hold.w);
         let w = measure_text("TAP TO HOLD", None, size.max(1.0) as u16, 1.0).width;
@@ -233,6 +230,50 @@ fn panel(r: Rect, label: &str, accent: Color, p: &PlayLayout, u: f32, look: Look
     Rect::new(r.x + pad, top, r.w - 2.0 * pad, r.bottom() - pad - top)
 }
 
+/// The minimal look's small Hold and Next boxes: a frame without a label, a little see-through
+/// (they can sit over the board's top rows). Returns the area for the piece.
+fn mini_panel(r: Rect, accent: Color, p: &PlayLayout, u: f32, look: Look) -> Rect {
+    if look.terminal() {
+        style::term_box(r, alpha(accent, 0.8), 0.55, u);
+    } else {
+        (look.0.panel)(r, alpha(accent, 0.8), u * 0.7);
+    }
+    let pad = (p.cell * 0.2).max(4.0 * u);
+    Rect::new(r.x + pad, r.y + pad, r.w - 2.0 * pad, r.h - 2.0 * pad)
+}
+
+/// The minimal look's score: the score, then level, lines and ghost blocks, as plain text in
+/// `p.stats` (one line, or two when it's tall enough). Still the ghost-block button.
+fn draw_minimal_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
+    let r = p.stats;
+    if r.w <= 0.0 || r.h <= 0.0 {
+        return;
+    }
+    let pop = fx.level_pop(fx.now());
+    let score = game.score.to_string();
+    let ghosts = game.ghost_blocks_available;
+    let mut sub = format!("LV {}  LN {}", game.level(), game.lines_cleared());
+    if ghosts > 0 {
+        sub.push_str(&format!("  G{ghosts}"));
+    }
+    let sub_color = style::mix(look.label(Accent::Green), look.accent(Accent::Gold), pop);
+    let two_lines = r.h >= label_size(p, u) * 2.6;
+    if two_lines {
+        let size = fit_size(&score, r.h * 0.42, r.w);
+        draw_text(&score, r.x, r.y + size * 0.85, size, look.value());
+        let small = fit_size(&sub, label_size(p, u), r.w);
+        draw_text(&sub, r.x, r.y + size + small * 1.2, small * (1.0 + 0.15 * pop), sub_color);
+        return;
+    }
+    let size = fit_size(&score, r.h * 0.9, r.w * 0.5);
+    let baseline = r.center().y + size * 0.35;
+    draw_text(&score, r.x, baseline, size, look.value());
+    let small = fit_size(&sub, (r.h * 0.42).min(label_size(p, u)), r.w * 0.5);
+    let sw = measure_text(&sub, None, small.max(1.0) as u16, 1.0).width;
+    draw_text(&sub, r.right() - sw, baseline, small * (1.0 + 0.15 * pop), sub_color);
+    fx.level_ring(vec2(r.right() - sw / 2.0, r.center().y), small * 2.0, fx.now());
+}
+
 fn label_size(p: &PlayLayout, u: f32) -> f32 {
     (p.cell * 0.58).clamp(11.0 * u, 19.0 * u)
 }
@@ -262,6 +303,9 @@ fn fit_size(text: &str, size: f32, max_w: f32) -> f32 {
 }
 
 fn draw_stats(game: &Game, p: &PlayLayout, u: f32, look: Look, fx: &Fx) {
+    if p.style == HudStyle::Minimal {
+        return draw_minimal_stats(game, p, u, look, fx);
+    }
     let pop = fx.level_pop(fx.now());
     let ghosts = game.ghost_blocks_available;
     let aiming = game.ghost_block_placement_mode;
