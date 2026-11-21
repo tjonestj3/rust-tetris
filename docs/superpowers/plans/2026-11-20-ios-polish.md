@@ -1,12 +1,12 @@
 # iPhone polish Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Haptics, iPhone Duo fold extras, a TestFlight expiry guard and Game Center for the iOS build.
 
 **Architecture:** Game events are read in `app.rs` after each frame's update (as the sounds are);
 scoring records each clear so the app can tell what kind it was. iOS-only native calls go through
-`ios/App/Native.m`, declared in Rust behind `cfg(target_os = "ios")` with desktop no-ops.
+`ios/App/Haptics.m` and `ios/App/GameCenter.m`, declared in Rust behind `cfg(target_os = "ios")` with desktop no-ops.
 
 **Tech Stack:** Rust + macroquad 0.4 (vendored miniquad), Objective-C (UIKit, Core Haptics,
 GameKit), XcodeGen, fastlane, GitHub Actions.
@@ -43,14 +43,14 @@ GameKit), XcodeGen, fastlane, GitHub Actions.
 - `TetrisScoring::{clears() -> u32, last_clear() -> Option<ClearRecord>, pieces() -> u32}`;
   `clears` +1 per `process_line_clear`; `pieces` +1 per `process_line_clear` and `process_no_line_clear`.
 
-- [ ] Tests: `records_each_clear` (two clears → clears 2, chain 0 then 1); `no_clear_breaks_chain`;
+- [x] Tests: `records_each_clear` (two clears → clears 2, chain 0 then 1); `no_clear_breaks_chain`;
   `old_save_deserializes` (JSON without the new fields → zeros/None); `perfect_and_b2b_recorded`.
-- [ ] Implement; call `process_no_line_clear()` in `lock_current_piece` when no lines complete, before the game-over check.
-- [ ] `cargo test --lib scoring` passes; commit.
+- [x] Implement; call `process_no_line_clear()` in `lock_current_piece` when no lines complete, before the game-over check.
+- [x] `cargo test --lib scoring` passes; commit.
 
 ### Task 2: Haptics
 
-**Files:** Create `src/haptics.rs`, `ios/App/Native.m`, `ios/App/Native.h`; modify `src/lib.rs`, `src/app.rs`,
+**Files:** Create `src/haptics.rs`, `ios/App/Haptics.m`; modify `src/lib.rs`, `src/app.rs`,
 `src/menu/mod.rs`, `ios/project.yml` (CoreHaptics, GameKit frameworks), `ios/README.md`.
 
 **Interfaces — Produces:** `pub enum Haptic { HardDrop, Clear(u32), Tetris, TSpin, Combo(u32), PerfectClear, FireballThrow, FireballHit, GameOver }`;
@@ -58,11 +58,11 @@ GameKit), XcodeGen, fastlane, GitHub Actions.
 `haptics::play(Haptic)`; `haptics::set_enabled(bool)`; C: `void rt_haptic(int kind, int amount)`.
 `GameSettings::haptics_enabled: bool` (serde default true).
 
-- [ ] Tests: `for_clear_priority` (one case per rung), `settings_default_haptics_on` (old JSON → true).
-- [ ] Implement `Native.m` (prepared impact generators; CHHapticEngine patterns with impact fallback).
-- [ ] Hook in `app.rs`: hard drop (both input paths), clear-counter change, `ghost_throw_active` edges, game over.
-- [ ] Touch settings: HAPTICS switch row under LEGACY; tap bands and `content_bounds` moved down.
-- [ ] `cargo test --lib`, iOS `cargo check`, desktop screenshot of settings; commit.
+- [x] Tests: `for_clear_priority` (one case per rung), `settings_default_haptics_on` (old JSON → true).
+- [x] Implement `Haptics.m` (prepared impact generators; CHHapticEngine patterns with impact fallback).
+- [x] Hook in `app.rs`: hard drop (both input paths), clear-counter change, `ghost_throw_active` edges, game over.
+- [x] Touch settings: HAPTICS switch row under LEGACY; tap bands and `content_bounds` moved down.
+- [x] `cargo test --lib`, iOS `cargo check`, desktop screenshot of settings; commit.
 
 ### Task 3: Duo extras
 
@@ -73,27 +73,27 @@ GameKit), XcodeGen, fastlane, GitHub Actions.
 with `FoldEvent { None, Pause, StartCountdown, CancelCountdown }`; `RunStats` (T-spins, Tetrises, best chain,
 B2B streak/best, pieces, perfect clears, pps) fed by `ClearRecord`s and `pieces()`; `Callout { text, age }`.
 
-- [ ] Tests: size change while playing → Pause; stable 0.4 s in TwoColumns after auto-pause → StartCountdown;
+- [x] Tests: size change while playing → Pause; stable 0.4 s in TwoColumns after auto-pause → StartCountdown;
   size change during countdown → CancelCountdown; OneColumn stays paused; desktop not touch → None;
   `feed` present and inside safe area for open Duo, absent for folded/strip; run stats tally.
-- [ ] Implement; touch Resume (P while Paused) starts the 3-2-1 instead of unpausing; countdown drawn over the board.
-- [ ] Draw run stats + callout in `feed` (both looks); screenshots at 568x449 and 458x574; commit.
+- [x] Implement; touch Resume (P while Paused) starts the 3-2-1 instead of unpausing; countdown drawn over the board.
+- [x] Draw run stats + callout in `feed` (both looks); screenshots at 568x449 and 458x574; commit.
 
 ### Task 4: TestFlight refresh
 
 **Files:** Modify `ios/fastlane/Fastfile` (lane `testflight_age`), create `.github/workflows/testflight-refresh.yml`, modify `ios/README.md`.
 
-- [ ] Lane writes whole days since the newest TestFlight build's upload to `build/testflight_age`.
-- [ ] Workflow: Mondays 14:00 UTC + manual (`force` boolean); ubuntu; `actions: write`; dispatches `ios.yml` on `main` when ≥ 75 days or forced.
-- [ ] `actionlint` if available, YAML parse check; commit.
+- [x] Lane writes whole days since the newest TestFlight build's upload to `build/testflight_age`.
+- [x] Workflow: Mondays 14:00 UTC + manual (`force` boolean); ubuntu; `actions: write`; dispatches `ios.yml` on `main` when ≥ 75 days or forced.
+- [x] `actionlint` if available, YAML parse check; commit.
 
 ### Task 5: Game Center
 
-**Files:** Create `src/game_center.rs`, `ios/App/RustTetris.entitlements`; modify `ios/App/Native.m`, `ios/project.yml`,
+**Files:** Create `src/game_center.rs`, `ios/App/RustTetris.entitlements`; create `ios/App/GameCenter.m`; modify `ios/project.yml`,
 `src/app.rs`, `src/menu/mod.rs`, `ios/README.md`.
 
 **Interfaces — Produces:** C `rt_gc_authenticate()`, `rt_gc_available() -> bool`, `rt_gc_submit_score(int64_t)`, `rt_gc_show_leaderboard()`;
 Rust wrappers of the same names without `rt_gc_`.
 
-- [ ] Authenticate after the first frame; submit at game over; leaderboard screen shows a GLOBAL button on iOS when available.
-- [ ] iOS `cargo check`, desktop leaderboard screenshot unchanged; README setup steps; commit.
+- [x] Authenticate after the first frame; submit at game over; leaderboard screen shows a GLOBAL button on iOS when available.
+- [x] iOS `cargo check`, desktop leaderboard screenshot unchanged; README setup steps; commit.

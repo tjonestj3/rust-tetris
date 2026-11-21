@@ -43,7 +43,7 @@ iPhone game (idea 4 of the tetris-ideas review).
 
 ## Approaches
 
-1. **A small Objective-C file in the app (`ios/App/Native.m`) for haptics and Game Center, called
+1. **Small Objective-C files in the app (`ios/App/Haptics.m`, `ios/App/GameCenter.m`), called
    from Rust through a few `extern "C"` functions** (picked). Core Haptics patterns, GameKit's
    completion blocks and view-controller presentation are a few lines of Obj-C each; from Rust
    they need hand-built NSDictionary patterns and Obj-C blocks. Rust declares the functions only
@@ -61,7 +61,7 @@ needed or not, and still lapses if one fails unnoticed).
 
 ### 1. Haptics (PR 1)
 
-- `ios/App/Native.m`: `void rt_haptic(int kind, float strength)`. Prepared
+- `ios/App/Haptics.m`: `void rt_haptic(int kind, int amount)`. Prepared
   `UIImpactFeedbackGenerator`s for single taps; a `CHHapticEngine` for multi-pulse patterns
   (Tetris double, T-spin triple tick, combo rising taps, fireball rumble). Falls back to impact
   generators when the device has no Core Haptics. `project.yml` adds `-framework CoreHaptics`.
@@ -116,7 +116,7 @@ needed or not, and still lapses if one fails unnoticed).
   profile on each build, so it picks up the capability.
 - `ios/App/RustTetris.entitlements` with `com.apple.developer.game-center`; `project.yml` sets
   `CODE_SIGN_ENTITLEMENTS` and links `GameKit`.
-- `Native.m`: `rt_gc_authenticate()` at launch (if GameKit hands back a sign-in view controller,
+- `ios/App/GameCenter.m`: `rt_gc_authenticate()` at launch (if GameKit hands back a sign-in view controller,
   present it once from the window's root view controller; signed out or offline means the game
   just carries on), `rt_gc_submit_score(int64)` at game over, `rt_gc_show_leaderboard()` opens
   `GKGameCenterViewController` on the High Score board, `rt_gc_available()`.
@@ -138,7 +138,7 @@ needed or not, and still lapses if one fails unnoticed).
 ## Order and coordination
 
 One commit series per part on `tjonestj3/ios-polish`, in the order above (parts 1 and 4 both
-touch `Native.m` and `project.yml`); split into PRs when pushed. Device testing happens through a
+touch `project.yml`); split into PRs when pushed. Device testing happens through a
 TestFlight build of the branch, started only after asking.
 Files touched: `src/app.rs`, `src/app/*`, `src/graphics/view.rs`, `src/scoring/mod.rs`,
 `src/menu/mod.rs`, `src/game/state.rs` (`lock_current_piece`, `hard_drop`, `add_score_for_lines`,
