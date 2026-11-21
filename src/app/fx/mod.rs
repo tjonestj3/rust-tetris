@@ -12,6 +12,7 @@ mod drop;
 mod gameover;
 mod ghost;
 pub(super) mod jonesin;
+mod label;
 mod level;
 mod perfect;
 mod tspin;
@@ -316,26 +317,4 @@ const MIDDLE: f32 = (BOARD_WIDTH as f32 - 1.0) / 2.0;
 fn text_centered(text: &str, cx: f32, cy: f32, size: f32, color: Color) {
     let w = measure_text(text, None, size.max(1.0) as u16, 1.0).width;
     draw_text(text, cx - w / 2.0, cy + size * 0.35, size, color);
-}
-
-/// A slanted label bar across the board at height `cy`: slides in from the left over `0..arrive`
-/// seconds, stays, and slides off to the right from `leave`.
-#[allow(clippy::too_many_arguments)]
-fn banner(label: &str, board: Rect, cy: f32, cell: f32, t: f32, arrive: f32, leave: f32, fill: Color, ink: Color) {
-    let inn = (t / arrive).clamp(0.0, 1.0);
-    let out = ((t - leave) / 0.3).clamp(0.0, 1.0);
-    if inn <= 0.0 || out >= 1.0 {
-        return;
-    }
-    let size = cell * 0.75;
-    let w = measure_text(label, None, size as u16, 1.0).width + cell * 1.4;
-    let h = cell * 1.2;
-    let start = board.x - w;
-    let cx = start + (board.center().x - start) * ease_out_cubic(inn) + ease_in_cubic(out) * board.w * 1.2;
-    let skew = h * 0.3;
-    let (l, r, top, bottom) = (cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0);
-    let fill = style::alpha(fill, 0.94);
-    draw_triangle(vec2(l + skew, top), vec2(r + skew, top), vec2(l - skew, bottom), fill);
-    draw_triangle(vec2(r + skew, top), vec2(r - skew, bottom), vec2(l - skew, bottom), fill);
-    text_centered(label, cx, cy, size, ink);
 }

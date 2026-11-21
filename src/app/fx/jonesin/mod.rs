@@ -1,32 +1,44 @@
-//! JONES'IN! (a Tetris): the letters slam down one after another, each landing with a punch and a
-//! white flash, with a raised edge and a thick outline; when the ! lands the board kicks, the
-//! screen flashes, two shockwaves ring out and confetti falls. Then the letters drop away.
+//! JONES'IN! (a Tetris). Each theme plays it its own way (graphics::theme::JonesinStyle), one
+//! file per style. They share the timing here: the big moment lands at [`BANG`], with the
+//! fanfare's chord (assets/sounds/jonesin.wav, its chord at 0.26 s), the word starts leaving at
+//! [`OUT`], and every style is gone before the celebration ends.
 //!
-//! A back-to-back Tetris (the scoring's last clear says so) runs hot: gold-to-pink letters that
-//! shimmer, heat rising behind them, a BACK-TO-BACK banner and an X2 stamp.
+//! A back-to-back Tetris (the scoring's last clear says so) runs hot: each style shows it in its
+//! own way, in the palette's hot colours.
 //!
-//! Everything runs on the game's celebration clock, so it pauses with the game. The letters land
-//! with the fanfare (assets/sounds/jonesin.wav): its chord at 0.26 s meets the ! at [`BANG`].
+//! Everything runs on the game's celebration clock, so it pauses with the game.
+
+mod bloom;
+mod bounce;
+mod dialog;
+mod marquee;
+mod plaque;
+mod slam;
+mod stamp;
+mod typed;
 
 use macroquad::prelude::*;
 
-use super::{ease_in_cubic, ease_out_cubic, hash01, style, FxPalette};
+use super::{ease_in_cubic, ease_out_bounce, ease_out_cubic, hash01, style, FxPalette};
 use crate::game::Game;
 use crate::game::config::TETRIS_CELEBRATION_TIME;
 use crate::graphics::text::{draw_text, measure_text};
+use crate::graphics::theme::JonesinStyle;
 use crate::graphics::view::Layout;
 use crate::scoring::LineClearType;
 
 const WORD: &str = "JONES'IN!";
+/// The word's letters, in order.
+const LETTERS: usize = WORD.len();
 /// Seconds between one letter starting to fall and the next.
 const STAGGER: f32 = 0.025;
 /// Seconds a letter takes to fall.
 const FALL: f32 = 0.09;
 /// Seconds a letter's landing punch lasts.
 const PUNCH: f32 = 0.14;
-/// When the ! lands.
-pub const BANG: f32 = (WORD.len() - 1) as f32 * STAGGER + FALL;
-/// When the letters start dropping away, one after another.
+/// When the big moment lands (the !, for the letters that fall).
+pub const BANG: f32 = (LETTERS - 1) as f32 * STAGGER + FALL;
+/// When the word starts leaving.
 const OUT: f32 = 1.45;
 const OUT_STAGGER: f32 = 0.03;
 const OUT_TIME: f32 = 0.3;
@@ -69,7 +81,12 @@ pub fn letter(i: usize, t: f32) -> Option<Letter> {
     Some(l)
 }
 
-/// The board's kick when the ! lands, as a direction scaled by how hard (up to 1).
+/// When letter `i` lands (or appears, for the styles that don't drop their letters).
+fn lands(i: usize) -> f32 {
+    i as f32 * STAGGER + FALL
+}
+
+/// The board's kick when the big moment lands, as a direction scaled by how hard (up to 1).
 pub fn shake(game: &Game) -> Vec2 {
     if !game.is_tetris_celebration_active() {
         return Vec2::ZERO;
@@ -89,63 +106,112 @@ fn back_to_back(game: &Game) -> bool {
         .is_some_and(|c| c.kind == LineClearType::Tetris && c.back_to_back)
 }
 
-/// Draw it over everything, in screen pixels.
+/// One frame of the celebration, for a style to draw.
+struct Scene<'a> {
+    /// Seconds in.
+    t: f32,
+    /// Back-to-back.
+    hot: bool,
+    screen: Rect,
+    board: Rect,
+    /// Where the word's middle goes.
+    cx: f32,
+    cy: f32,
+    /// The word fitted to the screen in the theme's font.
+    fit: WordFit,
+    pal: &'a FxPalette,
+    /// The layout's unit (about a point).
+    u: f32,
+}
+
+impl Scene<'_> {
+    /// Seconds since the big moment (negative before it).
+    fn since(&self) -> f32 {
+        self.t - BANG
+    }
+
+    /// 0 until the word starts leaving, then up to 1 over `dur` seconds.
+    fn leaving(&self, dur: f32) -> f32 {
+        ((self.t - OUT) / dur).clamp(0.0, 1.0)
+    }
+
+    /// The letters' colours, left to right.
+    fn stops(&self) -> &[Color; 3] {
+        if self.hot {
+            &self.pal.hot
+        } else {
+            &self.pal.word
+        }
+    }
+
+    /// Letter `i`'s colour.
+    fn fill(&self, i: usize) -> Color {
+        gradient(self.stops(), i as f32 / (LETTERS - 1) as f32)
+    }
+
+    /// The middle of letter `i`'s slot, across, at the fitted size.
+    fn letter_x(&self, i: usize) -> f32 {
+        let left = self.cx - self.fit.total / 2.0;
+        left + self.fit.widths[..i].iter().sum::<f32>() + self.fit.gap * i as f32 + self.fit.widths[i] / 2.0
+    }
+
+    /// Dim the screen behind the word, `strength` at most, while it's up.
+    fn dim(&self, strength: f32) {
+        let a = ((self.t - 0.1) / 0.15).clamp(0.0, 1.0) * (1.0 - ((self.t - OUT) / 0.4).clamp(0.0, 1.0));
+        if a > 0.0 {
+            let s = self.screen;
+            draw_rectangle(s.x, s.y, s.w, s.h, style::alpha(self.pal.dim, strength * a));
+        }
+    }
+
+    /// The screen flashes for a moment at the big moment.
+    fn flash(&self, strength: f32) {
+        let since = self.since();
+        if (0.0..0.08).contains(&since) {
+            let s = self.screen;
+            draw_rectangle(s.x, s.y, s.w, s.h, style::alpha(self.pal.flash, strength * (1.0 - since / 0.08)));
+        }
+    }
+}
+
+/// The letters of the word, one string each.
+fn chars() -> Vec<String> {
+    WORD.chars().map(String::from).collect()
+}
+
+/// Draw it over everything, in screen pixels, the way the palette's theme does it.
 pub fn draw(game: &Game, layout: &Layout, pal: &FxPalette) {
     if !game.is_tetris_celebration_active() {
         return;
     }
-    let t = game.tetris_celebration_timer as f32;
-    let hot = back_to_back(game);
     let screen = layout.screen;
     let board = layout.play.board;
-
     // The word: as big as fits the screen (and no taller than a good part of the board).
-    let chars: Vec<String> = WORD.chars().map(String::from).collect();
     let fit = fit_word(screen.w, board.h);
-    let (base, widths, gap, total, margin) = (fit.size, fit.widths, fit.gap, fit.total, fit.margin);
     // Over the board when there's room, otherwise the middle of the screen.
-    let (lo, hi) = (screen.x + total / 2.0 + margin, screen.right() - total / 2.0 - margin);
+    let (lo, hi) = (screen.x + fit.total / 2.0 + fit.margin, screen.right() - fit.total / 2.0 - fit.margin);
     let cx = if lo <= hi { board.center().x.clamp(lo, hi) } else { screen.center().x };
-    let cy = board.y + board.h * 0.42;
-
-    // Dim the board behind the word while it's up.
-    let dim = ((t - 0.1) / 0.15).clamp(0.0, 1.0) * (1.0 - ((t - OUT) / 0.4).clamp(0.0, 1.0));
-    if dim > 0.0 {
-        draw_rectangle(screen.x, screen.y, screen.w, screen.h, style::alpha(pal.dim, 0.35 * dim));
-    }
-    if hot {
-        draw_heat(screen, cx, cy, total, t, pal);
-    }
-
-    let stops = if hot { pal.hot } else { pal.word };
-    let mut x = cx - total / 2.0;
-    for (i, ch) in chars.iter().enumerate() {
-        let w = widths[i];
-        let centre = x + w / 2.0;
-        x += w + gap;
-        let Some(l) = letter(i, t) else { continue };
-        let u = i as f32 / (chars.len() - 1) as f32;
-        let fill = gradient(&stops, u);
-        let size = base * l.scale;
-        let wobble = if hot { (t * 40.0 + i as f32).sin() * base * 0.015 } else { 0.0 };
-        let top = screen.y - base;
-        let y = cy + (top - cy) * l.above + screen.h * l.below;
-        draw_letter(ch, centre + wobble, y, size, fill, l, pal);
-    }
-
-    // The ! lands: flash, shockwaves, confetti.
-    let since = t - BANG;
-    if (0.0..0.08).contains(&since) {
-        draw_rectangle(screen.x, screen.y, screen.w, screen.h, style::alpha(pal.flash, 0.3 * (1.0 - since / 0.08)));
-    }
-    ring(cx, cy, since, 0.55, screen.w * 0.5, pal.rings[0], base * 0.12);
-    ring(cx, cy, since - 0.08, 0.55, screen.w * 0.38, pal.rings[1], base * 0.08);
-    confetti(screen, t, pal, if hot { &pal.hot } else { &pal.word });
-
-    if hot {
-        draw_banner(cx, cy - base * 1.05, base, t, screen, pal);
-        let x = (cx + total / 2.0 + base * 0.35).min(screen.right() - base * 0.45);
-        draw_stamp(x, cy + base * 0.75, base, t, pal);
+    let s = Scene {
+        t: game.tetris_celebration_timer as f32,
+        hot: back_to_back(game),
+        screen,
+        board,
+        cx,
+        cy: board.y + board.h * 0.42,
+        fit,
+        pal,
+        u: layout.unit,
+    };
+    match pal.styles.jonesin {
+        JonesinStyle::Slam => slam::draw(&s),
+        JonesinStyle::Typed => typed::draw(&s),
+        JonesinStyle::Shell => typed::draw_shell(&s),
+        JonesinStyle::Marquee => marquee::draw(&s),
+        JonesinStyle::Dialog => dialog::draw(&s),
+        JonesinStyle::Bounce => bounce::draw(&s),
+        JonesinStyle::Stamp => stamp::draw(&s),
+        JonesinStyle::Plaque => plaque::draw(&s),
+        JonesinStyle::Bloom => bloom::draw(&s),
     }
 }
 
@@ -186,28 +252,13 @@ fn gradient(stops: &[Color; 3], u: f32) -> Color {
     style::mix(stops[i], stops[i + 1], s - i as f32)
 }
 
-fn draw_letter(ch: &str, cx: f32, cy: f32, size: f32, fill: Color, l: Letter, pal: &FxPalette) {
-    let w = measure_text(ch, None, size as u16, 1.0).width;
-    let x = cx - w / 2.0;
-    let y = cy + size * 0.35;
-    let a = l.alpha;
-    // The raised edge, back to front.
-    let step = size * 0.018;
-    for d in (1..=5).rev() {
-        let d = d as f32;
-        draw_text(ch, x + d * step * 0.9, y + d * step * 1.1, size, style::alpha(pal.edge, a));
-    }
-    // A thick outline.
-    let o = (size * 0.05).max(2.0);
-    for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7), (0.7, 0.7)] {
-        draw_text(ch, x + dx * o, y + dy * o, size, style::alpha(pal.outline, a));
-    }
-    draw_text(ch, x, y, size, style::alpha(fill, a));
-    if l.flash > 0.0 {
-        draw_text(ch, x, y, size, style::alpha(pal.flash, a * l.flash));
-    }
+/// Text centred on (`cx`, `cy`).
+fn centred(text: &str, cx: f32, cy: f32, size: f32, color: Color) {
+    let w = measure_text(text, None, size.max(1.0) as u16, 1.0).width;
+    draw_text(text, cx - w / 2.0, cy + size * 0.35, size, color);
 }
 
+/// A shockwave: an ellipse growing out from (`cx`, `cy`) and fading, `since` seconds in.
 fn ring(cx: f32, cy: f32, since: f32, dur: f32, radius: f32, color: Color, width: f32) {
     if !(0.0..dur).contains(&since) {
         return;
@@ -217,11 +268,14 @@ fn ring(cx: f32, cy: f32, since: f32, dur: f32, radius: f32, color: Color, width
     draw_ellipse_lines(cx, cy, r, r * 0.55, 0.0, width * (1.0 - p) + 1.0, style::alpha(color, 1.0 - p));
 }
 
-fn confetti(screen: Rect, t: f32, pal: &FxPalette, colors: &[Color; 3]) {
+/// Confetti falling from the top of the screen from the big moment.
+fn confetti(s: &Scene) {
     let (from, until) = (BANG, TETRIS_CELEBRATION_TIME as f32 - 0.2);
+    let (t, screen, pal) = (s.t, s.screen, s.pal);
     if t < from {
         return;
     }
+    let colors = s.stops();
     let palette = [colors[0], colors[1], colors[2], pal.flash, pal.stamp];
     for i in 0..26u32 {
         let delay = hash01(i, 1) * 0.5;
@@ -244,27 +298,9 @@ fn confetti(screen: Rect, t: f32, pal: &FxPalette, colors: &[Color; 3]) {
     }
 }
 
-fn draw_heat(screen: Rect, cx: f32, cy: f32, total: f32, t: f32, pal: &FxPalette) {
-    let a = ((t - 0.0) / 0.3).clamp(0.0, 1.0) * (1.0 - ((t - OUT) / 0.45).clamp(0.0, 1.0));
-    if a <= 0.0 {
-        return;
-    }
-    for i in 0..16u32 {
-        let x = cx - total * 0.55 + hash01(i, 11) * total * 1.1;
-        let speed = 0.35 + hash01(i, 12) * 0.4;
-        let phase = hash01(i, 13);
-        let rise = ((t * speed) + phase).fract();
-        let y = cy + screen.h * 0.12 - rise * screen.h * 0.4;
-        let h = screen.h * 0.05;
-        let w = (screen.w * 0.006).max(2.0) * (1.0 + hash01(i, 14));
-        for s in 0..4 {
-            let k = s as f32 / 4.0;
-            draw_rectangle(x, y - h + k * h, w, h / 4.0 + 0.5, style::alpha(pal.heat, 0.35 * a * k));
-        }
-    }
-}
-
-fn draw_banner(cx: f32, cy: f32, base: f32, t: f32, screen: Rect, pal: &FxPalette) {
+/// BACK-TO-BACK on a slanted bar that slides in above the word and off again.
+fn back_to_back_banner(s: &Scene, cy: f32) {
+    let (t, screen, base, pal, cx) = (s.t, s.screen, s.fit.size, s.pal, s.cx);
     let inn = ((t - 0.02) / 0.23).clamp(0.0, 1.0);
     let out = ((t - OUT) / 0.3).clamp(0.0, 1.0);
     if inn <= 0.0 || out >= 1.0 {
@@ -273,17 +309,15 @@ fn draw_banner(cx: f32, cy: f32, base: f32, t: f32, screen: Rect, pal: &FxPalett
     let x = (screen.x - base * 3.0) + (cx - (screen.x - base * 3.0)) * ease_out_cubic(inn) + ease_in_cubic(out) * screen.w;
     let (w, h) = (base * 4.6, base * 0.56);
     let skew = h * 0.35;
-    // A slanted bar: two triangles.
     let (l, r, top, bottom) = (x - w / 2.0, x + w / 2.0, cy - h / 2.0, cy + h / 2.0);
     draw_triangle(vec2(l + skew, top), vec2(r + skew, top), vec2(l - skew, bottom), pal.banner);
     draw_triangle(vec2(r + skew, top), vec2(r - skew, bottom), vec2(l - skew, bottom), pal.banner);
-    let label = "BACK-TO-BACK";
-    let size = base * 0.36;
-    let lw = measure_text(label, None, size as u16, 1.0).width;
-    draw_text(label, x - lw / 2.0, cy + size * 0.35, size, pal.banner_ink);
+    centred("BACK-TO-BACK", x, cy, base * 0.36, pal.banner_ink);
 }
 
-fn draw_stamp(x: f32, y: f32, base: f32, t: f32, pal: &FxPalette) {
+/// The X2 stamp that thumps down at the big moment.
+fn x2_stamp(s: &Scene, x: f32, y: f32) {
+    let (t, base, pal) = (s.t, s.fit.size, s.pal);
     let p = ((t - BANG) / 0.14).clamp(0.0, 1.0);
     if p <= 0.0 {
         return;
@@ -293,9 +327,14 @@ fn draw_stamp(x: f32, y: f32, base: f32, t: f32, pal: &FxPalette) {
     let r = base * 0.42 * scale;
     draw_circle(x, y, r, style::alpha(pal.stamp, a));
     draw_circle_lines(x, y, r, (base * 0.06).max(2.0), style::alpha(pal.banner_ink, a));
-    let size = base * 0.4 * scale;
-    let w = measure_text("X2", None, size as u16, 1.0).width;
-    draw_text("X2", x - w / 2.0, y + size * 0.35, size, style::alpha(pal.banner_ink, a));
+    centred("X2", x, y, base * 0.4 * scale, style::alpha(pal.banner_ink, a));
+}
+
+/// A block cursor after text, blinking once typing stops.
+pub(super) fn cursor(x: f32, baseline: f32, size: f32, color: Color, typing: bool, t: f32) {
+    if typing || (t * 3.0).fract() < 0.5 {
+        draw_rectangle(x, baseline - size * 0.7, size * 0.5, size * 0.8, color);
+    }
 }
 
 #[cfg(test)]
@@ -306,6 +345,7 @@ mod tests {
     fn the_bang_lands_with_the_fanfare_chord() {
         // The fanfare's chord comes in at 0.26 s (tools/jonesin_fanfare.py).
         assert!((BANG - 0.26).abs() < 0.05, "BANG {BANG}");
+        assert_eq!(lands(LETTERS - 1), BANG, "the last letter lands on the chord");
     }
 
     #[test]
@@ -338,5 +378,18 @@ mod tests {
         for i in 0..WORD.len() {
             assert!(letter(i, end).unwrap().alpha <= 0.0, "letter {i}");
         }
+        assert!(OUT + 0.45 < end, "every style's exit fits before the end");
+    }
+
+    #[test]
+    fn every_theme_picks_a_style_that_draws() {
+        // Each theme names one; the match in draw covers them all (a compile error otherwise).
+        // The default stays the slam.
+        assert_eq!(crate::graphics::theme::DEFAULT_STYLES.jonesin, JonesinStyle::Slam);
+        let picks: std::collections::HashSet<_> = crate::graphics::theme::ALL
+            .iter()
+            .map(|&id| format!("{:?}", crate::graphics::theme::get(id).fx.styles.jonesin))
+            .collect();
+        assert_eq!(picks.len(), crate::graphics::theme::ALL.len(), "each theme has its own JONES'IN!");
     }
 }

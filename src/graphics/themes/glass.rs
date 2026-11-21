@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 use super::soft_circle;
 use crate::graphics::style;
 use crate::graphics::text::Face;
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const BLUE: Color = Color::new(0.04, 0.52, 1.0, 1.0);
 const PINK: Color = Color::new(1.0, 0.22, 0.37, 1.0);
@@ -73,6 +73,12 @@ pub const THEME: Theme = Theme {
         chip: WHITE,
         block,
         panel,
+        window: None,
+        styles: FxStyles {
+            jonesin: JonesinStyle::Bloom,
+            label: LabelStyle::Pill,
+            ..DEFAULT_STYLES
+        },
     },
 };
 

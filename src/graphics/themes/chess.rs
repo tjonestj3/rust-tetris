@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 use super::{bevel, hash01};
 use crate::graphics::style;
 use crate::graphics::text::Face;
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const WALNUT: Color = Color::new(0.16, 0.10, 0.06, 1.0);
 const DARK_WOOD: Color = Color::new(0.23, 0.14, 0.09, 1.0);
@@ -76,6 +76,13 @@ pub const THEME: Theme = Theme {
         chip: DARK_WOOD,
         block,
         panel,
+        window: None,
+        styles: FxStyles {
+            jonesin: JonesinStyle::Plaque,
+            label: LabelStyle::Plank,
+            tspin_names: ["CHECK!", "CHECK! SINGLE", "DOUBLE CHECK!", "TRIPLE CHECK!"],
+            ..DEFAULT_STYLES
+        },
     },
 };
 

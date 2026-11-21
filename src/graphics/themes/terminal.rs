@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 
 use crate::graphics::style::{self, TERM_DIM, TERM_GREEN};
 use crate::graphics::text::Face;
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const PALE: Color = Color::new(0.7, 1.0, 0.7, 1.0);
 
@@ -56,6 +56,12 @@ pub const THEME: Theme = Theme {
         chip: BLACK,
         block: style::term_block,
         panel,
+        window: None,
+        styles: FxStyles {
+            jonesin: JonesinStyle::Typed,
+            label: LabelStyle::Typed,
+            ..DEFAULT_STYLES
+        },
     },
 };
 

@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 
 use crate::graphics::style;
 use crate::graphics::text::{draw_text, measure_text, Face};
-use crate::graphics::theme::{FxPalette, Theme, ThemeId};
+use crate::graphics::theme::{FxPalette, Theme, ThemeId, FxStyles, JonesinStyle, LabelStyle, DEFAULT_STYLES};
 
 const AQUA: Color = Color::new(0.16, 0.48, 0.93, 1.0);
 const GRAPHITE: Color = Color::new(0.42, 0.47, 0.53, 1.0);
@@ -75,6 +75,12 @@ pub const THEME: Theme = Theme {
         chip: STRIPE_B,
         block,
         panel,
+        window: Some(window),
+        styles: FxStyles {
+            jonesin: JonesinStyle::Bounce,
+            label: LabelStyle::Window,
+            ..DEFAULT_STYLES
+        },
     },
 };
 
