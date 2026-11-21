@@ -7,6 +7,7 @@ pub mod app;
 pub mod audio;
 pub mod board;
 pub mod game;
+pub mod game_center;
 pub mod graphics;
 pub mod haptics;
 pub mod input;

@@ -26,6 +26,11 @@ All gestures (`src/input/touch.rs`); the only button is pause:
 | Flick up | Hold |
 | **II** (beside the board) | Pause: the gestures, Resume, Menu |
 
+**Game Center** (`src/game_center.rs`, `App/GameCenter.m`): the game signs in at launch (GameKit
+offers its sheet once a launch at most), sends the score at the end of every game to the
+`rusttetris.highscore` leaderboard, and, when signed in, the touch leaderboard has a **GAME
+CENTER** button that opens the global board. The phone's own high-score table is unchanged.
+
 Menus: tap an option. Settings: tap Sound, Volume, Legacy or Haptics to change it, anywhere else
 to go back. A high score brings up the keyboard; Return saves it.
 
@@ -80,6 +85,7 @@ TETRIS_INSETS=59,0,34,0 cargo run -- --touch   # fake safe-area insets (top,left
 cargo run -- --touch --play [--paused]         # straight into a game (paused)
 cargo run -- --touch --play --paused --countdown --callout   # the 3-2-1 and a clear callout
 cargo run -- --touch --menu settings           # or leaderboard, name
+cargo run -- --touch --menu leaderboard --game-center   # as if signed in to Game Center
 TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 ```
 
@@ -90,6 +96,19 @@ TETRIS_SCREENSHOT=out.png cargo run -- ...     # save frame 30 and quit
 2. **App record**: App Store Connect → Apps → + → New App with that bundle ID.
 3. **TestFlight group**: the app → TestFlight → Internal Testing → +, add yourself, tick
    **Enable automatic distribution**.
+
+### Game Center (one time, by hand) ⏳ to do
+
+4. **Capability**: Identifiers → `com.tjonestj3.rusttetris` → make sure **Game Center** is ticked
+   (it usually is by default) and save. The next build's provisioning profile picks it up
+   (`get_provisioning_profile(force: true)` in the Fastfile).
+5. **Leaderboard**: App Store Connect → the app → **Game Center** (under Features or Services)
+   → Leaderboards → + → **Classic**: reference name `High Score`, ID **`rusttetris.highscore`**,
+   score format Integer, sorted **High to Low**, submission type Best Score; add an English
+   localization (name `High Score`).
+6. TestFlight builds use Game Center's sandbox: sign in on the phone when the game offers it.
+
+Until then the game plays as before: scores just don't reach Game Center.
 
 ## Repository secrets (`gh secret set -R tjonestj3/rust-tetris …`)
 
@@ -147,7 +166,7 @@ it is enough to sort out a layout problem on a device.
   (`shrink-music.sh`), halving its size and memory. The repo's file is unchanged.
 - **No Quit** on iOS (apps don't quit themselves).
 - **Objective-C** (`App/*.m`, ARC): the bits that are much simpler in Objective-C than through
-  Rust's `objc` crate (Core Haptics patterns, and blocks). Rust declares their C functions for
+  Rust's `objc` crate (Core Haptics patterns, GameKit's blocks and view controllers). Rust declares their C functions for
   `target_os = "ios"` only; desktop builds get no-ops. Linux CI can't compile them: the first
   check is the Mac build in `ios.yml`.
 

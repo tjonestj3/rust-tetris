@@ -207,7 +207,15 @@ impl MenuSystem {
     
     /// Handle input for the leaderboard screen
     fn handle_leaderboard_input(&mut self) -> MenuAction {
-        if key_pressed(KeyCode::Escape) || key_pressed(KeyCode::Enter) || canvas_tap().is_some() {
+        let tap = canvas_tap();
+        // Touch: the Game Center button opens the global board; a tap anywhere else goes back.
+        if let (Some(t), Some(button)) = (tap, self.touch_global_button()) {
+            if button.contains(t) {
+                crate::game_center::show_leaderboard();
+                return MenuAction::None;
+            }
+        }
+        if key_pressed(KeyCode::Escape) || key_pressed(KeyCode::Enter) || tap.is_some() {
             self.state = MenuState::Main;
             self.selected_option = 2; // Return to leaderboard option
             return MenuAction::None;
@@ -680,9 +688,24 @@ impl MenuSystem {
         let instruction = if touch { "Tap anywhere to go back" } else { "Press ESCAPE or ENTER to return to main menu" };
         let inst_width = measure_text(instruction, None, 20, 1.0).width;
         let inst_x = (WINDOW_WIDTH as f32 - inst_width) / 2.0;
-        let inst_y = if touch { self.touch_leaderboard_bottom() - 25.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
+        let inst_y = if touch { self.touch_table_bottom() - 25.0 } else { WINDOW_HEIGHT as f32 - 50.0 };
         
         self.draw_text_with_outline(instruction, inst_x, inst_y, 20.0, Color::new(0.7, 0.7, 0.7, 0.8));
+
+        if let Some(r) = self.touch_global_button() {
+            use crate::graphics::style::{self, mix, CYAN};
+            style::panel(r, CYAN, 1.0);
+            let label = "GAME CENTER";
+            let size = 24.0;
+            let w = measure_text(label, None, size as u16, 1.0).width;
+            draw_text(label, r.center().x - w / 2.0, r.center().y + size * 0.35, size, mix(CYAN, WHITE, 0.6));
+        }
+    }
+
+    /// The touch leaderboard's Game Center button (signed in only), under the "go back" line.
+    fn touch_global_button(&self) -> Option<Rect> {
+        (crate::platform::is_touch_device() && crate::game_center::available())
+            .then(|| Rect::new(WINDOW_WIDTH as f32 / 2.0 - 140.0, self.touch_table_bottom() + 4.0, 280.0, 56.0))
     }
     
     /// Render the settings screen
@@ -979,8 +1002,17 @@ impl MenuSystem {
         }
     }
 
-    /// Where the touch leaderboard ends (just under its "go back" line), in canvas units.
+    /// Where the touch leaderboard ends (under its "go back" line and Game Center button), in
+    /// canvas units.
     fn touch_leaderboard_bottom(&self) -> f32 {
+        match self.touch_global_button() {
+            Some(r) => r.bottom() + 12.0,
+            None => self.touch_table_bottom(),
+        }
+    }
+
+    /// Just under the touch leaderboard's "go back" line.
+    fn touch_table_bottom(&self) -> f32 {
         let rows = self.leaderboard.entries.len().min(TOUCH_TABLE_ROWS);
         if rows == 0 { 460.0 } else { 180.0 + 22.0 + (rows as f32 - 1.0) * 45.0 + 85.0 }
     }

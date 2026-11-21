@@ -167,6 +167,9 @@ pub async fn run() {
     // The first frame's time includes loading everything: it's not time away.
     let mut first_frame = true;
 
+    // Game Center (iOS): signs in in the background; GameKit may show its sheet once.
+    crate::game_center::authenticate();
+
     // Touch: pausing when the Duo folds or unfolds mid-game, counting back in; the callout for
     // the last special clear.
     let mut pause_flow = duo::PauseFlow::default();
@@ -321,6 +324,7 @@ pub async fn run() {
                     
                     // Check for game over and high score
                     if current_game.state == GameState::GameOver && prev_state != GameState::GameOver {
+                        crate::game_center::submit_score(current_game.score);
                         // Game just ended - check for high score
                         if menu_system.check_high_score(
                             current_game.score,

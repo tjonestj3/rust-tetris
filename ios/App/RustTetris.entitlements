@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Game Center (src/game_center.rs). The App ID needs the Game Center capability too. -->
+	<key>com.apple.developer.game-center</key>
+	<true/>
+</dict>
+</plist>
