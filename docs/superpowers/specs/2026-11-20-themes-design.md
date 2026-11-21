@@ -24,6 +24,12 @@ look rather than a recolour, plus a minimal mode with a bigger, centred board. P
 - A separate **Minimal** switch that works with every theme: no stats panel, small Hold and Next
   beside the board, board as large as the screen allows, centred.
 - The themes are tributes, not copies: our own names, no logos, no copied fonts or artwork.
+- **Animations follow the theme.** JONES'IN! (Slam and Back-to-back), the line-clear pop, the
+  T-spin, combo and perfect-clear labels, the game-over card, the ghost-block comet and the level
+  flip all take their colours, font and accents from the theme. The animations are built first
+  with every colour coming from one `FxPalette` (`src/app/fx.rs`); a theme supplies its own
+  palette, so no animation code changes when a theme is added. Terminal, for example, draws
+  JONES'IN! in green block letters with a scanline flash instead of confetti.
 
 ## Non-goals
 
